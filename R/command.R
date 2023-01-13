@@ -37,10 +37,11 @@ getEvaluateCmd <- function(id) {
 initializeDocState <- function() {
   envir <- rlang::caller_env()
   docState <- list(
-    initVarList= getVarList(envir),
+    initVarList= getEnvironmentVars(envir),
     lines=list(),
     current=NULL,
-    hidden=c("docstate")
+    hidden=c("docstate"),
+    currentCommandIndex=1
   )
   rlang::env_bind(envir,docState=docState)
 }
@@ -88,10 +89,137 @@ evaluate <- function(localDocState,index,envir) {
   )
 
   ##save the final var list
-  entry$varList <- getVarList(envir)
+  entry$varList <- getEnvironmentVars(envir)
   localDocState$lines[[index]] <- entry
 
   localDocState
+}
+
+##This udpates th the doc state for any changes from the commands
+evaluateDocState <- function(localDocState) {
+  prevLine <- NULL
+  currentCmdIndex <- localDocState$currentCmdIndex
+  
+  localDocState$lines <- lapply(localDocState$lines,function(line) {
+    ##new working line
+    modLine <- line
+
+    if(!is.null(prevLine)) {
+      prevLineId <- prevLine$id
+      inputvalidIndex <- prevLine$outputValidIndex
+      inVarList <- prevLine$outVarList
+      inVarVersions <- prevLine$outVarVersions
+    }
+    else {
+      ##no previous line - use initial doc state
+      prevLineId <- NULL
+      inputValidIndex <- 1
+      inVarList <- localDocState$initVarList
+      inVarVersions <- "|1"
+    }
+    
+    reval <- FALSE
+    inputsChanged <- FALSE
+    
+    ##------------------------
+    ## Process an input change
+    ##------------------------
+    if( !identical(prevLineId,modLine$prevLineId) || !identical(inputValidIndex,modLine$inputValidIndex) ) {
+      modLine$prevLineId <- prevLineId
+      modLine$inputvalidIndex <- inputValidIndex
+      modLine$inVarList <- inVarList
+      modLine$inVarVersions <- inVarVersions
+      inputsChanged = TRUE
+    }
+    
+    ##------------------------
+    ## check if we need to reevaluate
+    ##------------------------
+
+    if( identical(line$codeChangedIndex,line$currentCmdIndex) ) {
+      reval <- TRUE
+    }
+    else if(inputsChanged) {
+      ## check if we need to reevaluate because of input change
+      if( any(inVarVersions[modLine$codeInputs] != modLine$inVarVersions[modeLine$codeInputs]) ) {
+        ##code inputs were changed
+        reval <- TRUE
+      }
+      else {
+        ##no code inputs were changed
+        ##carry over changed inputs that are not variables updated or deleted by lnie code
+        carryoverNames <- setDiff(names(modeLine$inVarList),c(modLine$updated,modLine$deleted))
+      
+        modLine$outVarList[carryoverNames] <- inVarList[carryoverNames]
+        modLine$outVarVersions[carryoverNames] <- inVarVersions[carryoverNames]
+        modLine$outVarIndex <- currentCmdIndex
+      }
+    }
+
+    ##------------------------
+    ## reevaluate if needed (this will also recalculate all outputs
+    ##------------------------
+    if(reval) {
+      modLine <- evalCode(modLine,currentCmdIndex)
+    }
+    
+    prevLine <<- modLine
+    modLine
+  })
+  
+  localDocState
+}
+
+##CHANGE ABOVE
+## change codeInputs name!!
+## outVarIds,Indicies => outVarVersions
+## check I did carryover correctly factoring in deleted variables in code eval
+
+evalCode <- function(modLine,currentCmdIndex) {
+  
+  ##evaluate, printing outputs to the console
+  tryCatch({
+    ##this evaluates the exprs with autoprint, like the console does
+    withAutoprint(exprs=entry$exprs,local=envir,evaluated=TRUE,echo=FALSE)
+  },
+  error=function(err) {
+    message(err)
+  }
+  )
+  
+  ##save the final var list
+  modLine <- updateLineOutputs(modLine,envir,currentCmdIndex)
+  
+  modLine
+}
+
+## This updates the line outputs for a newly evaluated entry
+updateLineOutputs <- function(inLine,envir,currentCmdIndex) {
+  newVarList <- getEnvironmentVars(envir)
+  
+  ## MAKE SURE SOME OF THESE THING ARE PRESENT!!!
+  ## see how to handle values on inLine, in case some are missing
+  
+  kept <- intersect(names(inLine$outVarList),names(newVarList))
+  created <- setdiff(names(newVarList),names(inLine$outVarList))
+  deleted <- setdiff(names(inLine$outVarList),names(newVarList))
+  updated <- kept[sapply(kept,function(varName) !identical(inLine$outVarList[[varName]],newVarList[[varName]]))]
+  unchanged <- setdiff(names(kept),names(updated))
+  
+  newVarVersions = rep(paste(inLine$id,currentCmdIndex,sep="|"),length(newVarList))
+  names(newVarVersions) = names(newVarList)
+  newVarVersions[unchanged] = inLine$outVarVersions[unchanged]
+  
+  ## set the new output values on the line
+  outLine <- inLine
+  outLine$created <- created
+  outLine$updated <- updated
+  outLine$deleted <- deleted ##do we need this?
+  outLine$outValidIndex <- currentCmdIndex
+  outLine$outVarList <- newVarList
+  outLine$outVarVersions <- newVarVersions
+  
+  outLine
 }
 
 ##set up the command list
@@ -117,7 +245,7 @@ commandList$add <- function(localDocState,cmd) {
   ##create entry
   entry <- list(id=cmd$id,code=cmd$code)
   entry$exprs <- rlang::parse_exprs(cmd$code)
-  entry$symbols <- getSymbols(cmd$code)
+  entry$codeInputs <- getDependencies(cmd$code)
 
   ##add to state and return
   insertAfter(localDocState,entry,cmd$after)
@@ -135,7 +263,7 @@ commandList$update <- function(localDocState,cmd) {
   ##update entry
   entry$code <- cmd$code
   entry$exprs <- rlang::parse_exprs(cmd$code)
-  entry$symbols <- getSymbols(cmd$code)
+  entry$codeInputs <- getDependencies(cmd$code)
 
   ##add to state and return
   localDocState$lines[[entry$id]] <- entry

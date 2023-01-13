@@ -1,6 +1,6 @@
 
 ## This funtion gets the extenal dependency symbols in some code text
-getSymbols <- function(codeText,hiddenSymbols) {
+getDependencies <- function(codeText,hiddenSymbols) {
   ## this is kludgey
   ## also I should protect against funny input. Maybe get an ast to see if it is a good command (above)
   closureText <- sprintf("function() {\n%s\n}",codeText)
@@ -10,14 +10,14 @@ getSymbols <- function(codeText,hiddenSymbols) {
 }
 
 ## This function loads the variable list from the current environment
-getVarList <- function(envir) {
-  varList <- sapply(names(envir),function(name) envir[[name]])
-  names(varList) = names(envir)
+getEnvironmentVars <- function(envir) {
+  envirVars <- sapply(names(envir),function(name) envir[[name]])
+  names(envirVars) = names(envir)
 
   ##remove hidden variables
-  varList <- varList[names(varList) != "docState"]
+  envirVars <- envirVars[names(varList) != "docState"]
 
-  varList
+  envirVars
 }
 
 insertAfter <- function(localDocState,entry,index) {
