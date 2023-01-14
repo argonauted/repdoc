@@ -3,8 +3,8 @@ source("./R/utils.R")
 ##Constants
 
 INIT_ID <- ""
-INIT_INDEX <- 1
-INIT_VERSION <- "|1"
+INIT_INDEX <- 0
+INIT_VERSION <- "|0"
 
 ##======================
 ## Command Helpers
@@ -15,25 +15,12 @@ getAddCmd <- function(id,code,after) {
   list(type="add",id=id,code=code,after=after,eval=after+1)
 }
 
-getUpdateCmd <- function(id,code,doEval) {
-  cmd <- list(type="update",id=id,code=code)
-  if(doEval) {
-    index = which(names(docState$lines) == id)
-    cmd$eval = index
-  }
-  cmd
+getUpdateCmd <- function(id,code) {
+  list(type="update",id=id,code=code)
 }
 
-getDeleteCmd <- function(id,doEval) {
+getDeleteCmd <- function(id) {
   cmd <- list(type="delete",id=id)
-  if(doEval) {
-    ## add eval index only if there is a line after this one
-    index = which(names(docState$lines) == id)
-    if(length(docState$lines) > index) {
-      cmd$eval = index
-    }
-  }
-  cmd
 }
 
 getEvaluateCmd <- function(id) {
@@ -50,12 +37,18 @@ getEvaluateCmd <- function(id) {
 ## This function loads an initial doc state based on the current environment
 initializeDocState <- function() {
   envir <- rlang::caller_env()
+  initVarList<-getEnvironmentVars(envir)
+  initVarVersions<-rep(INIT_VERSION,length(initVarList))
+  names(initVarVersions) = names(initVarList)
+  
   docState <- list(
-    initVarList= getEnvironmentVars(envir),
+    initVarList=initVarList,
+    initVarVersions=initVarVersions,
     lines=list(),
     ##hidden=c("docstate"),
     cmdIndex=INIT_INDEX
   )
+  
   rlang::env_bind(envir,docState=docState)
 }
 
@@ -79,10 +72,8 @@ executeCommand <- function(cmd) {
   cmdFunc <- commandList[[cmd$type]]
   localDocState <- cmdFunc(localDocState,cmd)
 
-  ##evaluate requested lines
-  if( "eval" %in% names(cmd)) {
-    localDocState <- evaluate(localDocState,cmd$eval,envir)
-  }
+  ##update the doc state for the change to the code
+  localDocState <- evaluateDocState(localDocState,envir)
 
   ##save the state
   docState <<- localDocState
@@ -92,29 +83,8 @@ executeCommand <- function(cmd) {
 ## Internal Functions
 ##======================
 
-## This function evaluates the entry at the given index
-evaluate <- function(localDocState,index,envir) {
-  entry <- localDocState$lines[[index]]
-
-  ##evaluate
-  tryCatch({
-    ##this evaluates the exprs with autoprint, like the console does
-    withAutoprint(exprs=entry$exprs,local=envir,evaluated=TRUE,echo=FALSE)
-  },
-  error=function(err) {
-    message(err)
-  }
-  )
-
-  ##save the final var list
-  entry$varList <- getEnvironmentVars(envir)
-  localDocState$lines[[index]] <- entry
-
-  localDocState
-}
-
 ##This udpates th the doc state for any changes from the commands
-evaluateDocState <- function(localDocState) {
+evaluateDocState <- function(localDocState,envir) {
   prevLine <- NULL
   currentCmdIndex <- localDocState$cmdIndex
   
@@ -133,7 +103,7 @@ evaluateDocState <- function(localDocState) {
       prevLineId <- INIT_ID
       inIndex <- INIT_INDEX
       inVarList <- localDocState$initVarList
-      inVarVersions <- INIT_VERSION
+      inVarVersions <- localDocState$initVarVersions
     }
     
     reval <- FALSE
@@ -147,6 +117,15 @@ evaluateDocState <- function(localDocState) {
       modLine$inIndex <- inIndex
       modLine$inVarList <- inVarList
       modLine$inVarVersions <- inVarVersions
+      
+      ##clean this up - I do something similar for versions in other places
+      ##also. later we should get better versions for what I call here "system" variables
+      codeInputVersions <- rep("system",length(modLine$codeInputs))
+      names(codeInputVersions) <- modLine$codeInputs
+      envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
+      codeInputVersions[envirCodeInputs] <- modLine$inVarVersions[envirCodeInputs]
+      modLine$codeInputVersions <- codeInputVersions
+      
       inputsChanged = TRUE
     }
     
@@ -159,14 +138,19 @@ evaluateDocState <- function(localDocState) {
     }
     else if(inputsChanged) {
       ## check if we need to reevaluate because of input change
-      if( any(inVarVersions[modLine$codeInputs] != modLine$inVarVersions[modeLine$codeInputs]) ) {
+      
+      ## old inputs: codeInputversions = versions associated with code Inputs
+      ## FOR ALL CODE INPUTS. Use a "system" value if taken from the system
+      ## (later we should work that out!)
+      
+      if( any(modLine$codeInputVersions != line$codeInputVersions) ) {
         ##code inputs were changed
         reval <- TRUE
       }
       else {
         ##no code inputs were changed
         ##carry over changed inputs that are not variables updated or deleted by lnie code
-        carryoverNames <- setDiff(names(modeLine$inVarList),c(modLine$updated,modLine$deleted))
+        carryoverNames <- setDiff(names(modLine$inVarList),c(modLine$updated,modLine$deleted))
       
         modLine$outVarList[carryoverNames] <- inVarList[carryoverNames]
         modLine$outVarVersions[carryoverNames] <- inVarVersions[carryoverNames]
@@ -178,7 +162,7 @@ evaluateDocState <- function(localDocState) {
     ## reevaluate if needed (this will also recalculate all outputs
     ##------------------------
     if(reval) {
-      modLine <- evalCode(modLine,currentCmdIndex)
+      modLine <- evalCode(modLine,currentCmdIndex,envir)
     }
     
     prevLine <<- modLine
@@ -188,12 +172,12 @@ evaluateDocState <- function(localDocState) {
   localDocState
 }
 
-evalCode <- function(modLine,currentCmdIndex) {
+evalCode <- function(modLine,currentCmdIndex,envir) {
   
   ##evaluate, printing outputs to the console
   tryCatch({
     ##this evaluates the exprs with autoprint, like the console does
-    withAutoprint(exprs=entry$exprs,local=envir,evaluated=TRUE,echo=FALSE)
+    withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
   },
   error=function(err) {
     message(err)
@@ -217,7 +201,7 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   created <- setdiff(names(newVarList),names(oldLine$inVarList))
   deleted <- setdiff(names(oldLine$inVarList),names(newVarList))
   updated <- kept[sapply(kept,function(varName) !identical(oldLine$inVarList[[varName]],newVarList[[varName]]))]
-  unchanged <- setdiff(names(kept),names(updated))
+  unchanged <- setdiff(kept,updated)
   
   ##set the versions for each variable value
   newVarVersions = rep(paste(oldLine$id,currentCmdIndex,sep="|"),length(newVarList))
@@ -225,7 +209,7 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   newVarVersions[unchanged] = oldLine$inVarVersions[unchanged]
   
   ## set the new output values on the line
-  newLine <- inLine
+  newLine <- oldLine
   newLine$created <- created
   newLine$updated <- updated
   newLine$deleted <- deleted ##do we need this?
@@ -256,7 +240,7 @@ commandList$add <- function(docState,cmd) {
   entry$code <- cmd$code
   entry$exprs <- rlang::parse_exprs(cmd$code)
   entry$codeInputs <- getDependencies(cmd$code)
-  entry$codeChangeIndex <- localDocState$cmdIndex
+  entry$codeChangedIndex <- localDocState$cmdIndex
   
   # set later:
   #entry$prevLineId
@@ -277,7 +261,7 @@ commandList$add <- function(docState,cmd) {
 }
 
 commandList$update <- function(docState,cmd) {
-  if( !(cmd$id %in% names(localDocState$lines)) ) {
+  if( !(cmd$id %in% names(docState$lines)) ) {
     stop(sprintf("The id is not found: %s",cmd$id))
   }
   
@@ -288,7 +272,7 @@ commandList$update <- function(docState,cmd) {
   entry$code <- cmd$code
   entry$exprs <- rlang::parse_exprs(cmd$code)
   entry$codeInputs <- getDependencies(cmd$code)
-  entry$codeChangeIndex <- localDocState$cmdIndex
+  entry$codeChangedIndex <- localDocState$cmdIndex
 
   ##add to state and return
   localDocState$lines[[entry$id]] <- entry

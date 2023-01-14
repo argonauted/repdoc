@@ -15,7 +15,7 @@ getEnvironmentVars <- function(envir) {
   names(envirVars) = names(envir)
 
   ##remove hidden variables
-  envirVars <- envirVars[names(varList) != "docState"]
+  envirVars <- envirVars[names(envirVars) != "docState"]
 
   envirVars
 }
