@@ -2,8 +2,9 @@ source("./R/utils.R")
 
 ##Constants
 
-INIT_ID <- ""
-INIT_INDEX <- 0
+INIT_DOC_SESSION_ID <- ""
+INIT_LINE_ID <- ""
+INIT_CMD_INDEX <- 0
 INIT_VERSION <- "|0"
 
 ##======================
@@ -11,52 +12,62 @@ INIT_VERSION <- "|0"
 ##======================
 
 ## This function creates an "add" command
-getAddCmd <- function(id,code,after) {
-  list(type="add",id=id,code=code,after=after,eval=after+1)
+addCmd <- function(docSessionId,lineId,code,after) {
+  cmd <- list(type="add",lineId=lineId,code=code,after=after)
+  executeCommand(docSessionId,cmd)
 }
 
-getUpdateCmd <- function(id,code) {
-  list(type="update",id=id,code=code)
+updateCmd <- function(docSessionId,lineId,code) {
+  cmd <- list(type="update",lineId=lineId,code=code)
+  executeCommand(docSessionId,cmd)
 }
 
-getDeleteCmd <- function(id) {
-  cmd <- list(type="delete",id=id)
+deleteCmd <- function(docSessionId,lineId) {
+  cmd <- list(type="delete",lineId=lineId)
+  executeCommand(docSessionId,cmd)
 }
 
-getEvaluateCmd <- function(id) {
-  cmd <- list(type="evaluate")
-  index = which(names(docState$lines) == id)
-  cmd$eval = index
-  cmd
-}
 
 ##======================
 ## Main Functions
 ##======================
 
-## This function loads an initial doc state based on the current environment
-initializeDocState <- function() {
-  envir <- rlang::caller_env()
-  initVarList<-getEnvVars(envir)
+## This function should be called to initialize a session. 
+initializeSession <- function() {
+  globalEnv <- rlang::global_env()
+  
+  ## add the session state environment
+  rlang::env_bind(globalEnv,.sessionStateEnv.=rlang::child_env(globalEnv,docStates=list()))
+  
+  ##add the initial global environment state data
+  initVarList<-getEnvVars(globalEnv)
   initVarVersions<-rep(INIT_VERSION,length(initVarList))
   names(initVarVersions) = names(initVarList)
+  rlang::env_bind(.sessionStateEnv.,initVarList=initVarList,initVarVersions=initVarVersions)
   
+  ##set the current global environment state
+  setEnvVersion(INIT_DOC_SESSION_ID,INIT_LINE_ID,INIT_CMD_INDEX)
+  
+  NULL
+}
+
+## This function should be called to initialize a document session
+## This doc session Id should be a unique string for this session.
+initializeDocState <- function(docSessionId) {
   docState <- list(
-    initVarList=initVarList,
-    initVarVersions=initVarVersions,
+    docSessionId=docSessionId,
     lines=list(),
-    ##hidden=c("docstate"),
-    cmdIndex=INIT_INDEX
+    cmdIndex=INIT_CMD_INDEX
   )
   
-  rlang::env_bind(envir,docState=docState)
+  setDocState(docSessionId,docState)
   
-  setEnvVersion(envir,INIT_ID,INIT_INDEX)
+  docState
 }
 
 
-## This function executes the given command, updating the docState
-executeCommand <- function(cmd) {
+## This function executes the given command in the given document session
+executeCommand <- function(docSessionId,cmd) {
 
   ##validate the cmd
   if( !("type" %in% names(cmd)) ) {
@@ -67,59 +78,102 @@ executeCommand <- function(cmd) {
   }
 
   ## init
-  localDocState <- docState
-  envir <- rlang::caller_env()
+  docState <- getDocState(docSessionId)
+  if(is.null(docState)) stop(sprintf("Document session not found: %s",docSessionId))
+  envir <- rlang::global_env()
   
-  localDocState$cmdIndex <- docState$cmdIndex + 1
+  docState$cmdIndex <- docState$cmdIndex + 1
 
   ##execute command
   cmdFunc <- commandList[[cmd$type]]
-  localDocState <- cmdFunc(localDocState,cmd)
+  docState <- cmdFunc(docState,cmd)
 
   ##update the doc state for the change to the code
-  localDocState <- evaluateDocState(localDocState,envir)
+  docState <- evaluateDocState(docState,envir)
 
   ##save the state
-  docState <<- localDocState
+  setDocState(docSessionId,docState)
+  
+  NULL
 }
 
 ##======================
 ## Internal Functions
 ##======================
 
-setEnvVersion <- function(envir,lineId,cmdIndex) {
-  rlang::env_bind(envir,envVersion=list(lineId=lineId,cmdIndex=cmdIndex))
+##----------------------
+## session data storage
+##----------------------
+
+## Stores the version for the global environment
+setEnvVersion <- function(docSessionId,lineId,cmdIndex) {
+  rlang::env_bind(.sessionStateEnv.,envVersion=list(docSessionId=docSessionId,
+                                                    lineId=lineId,
+                                                    cmdIndex=cmdIndex))
+  NULL
 }
 
-clearEnvVersion <- function(envir) {
-  rlang::env_bind(envir,envVersion=NULL)
+## Sets the version of the global environment to NULL, symoblizing an unknown state
+clearEnvVersion <- function() {
+  rlang::env_bind(.sessionStateEnv.,envVersion=NULL)
+  NULL
 }
 
-getEnvVersion <- function(envir) {
-  rlang::env_get(envir,"envVersion")
+## Gets the global environment version
+getEnvVersion <- function() {
+  rlang::env_get(.sessionStateEnv.,"envVersion")
 } 
 
+## Sets the doc state for the given doc session ID
+setDocState <- function(docSessionId,docState) {
+  docStates <- rlang::env_get(.sessionStateEnv.,"docStates")
+  docStates[[docSessionId]] = docState
+  rlang::env_bind(.sessionStateEnv.,docStates=docStates)
+}
+
+## Gets the doc state for the given session ID
+getDocState <- function(docSessionId) {
+  docStates <- rlang::env_get(.sessionStateEnv.,"docStates")
+  if(! docSessionId %in% names(docStates)) stop(sprintf("Application error! Invalid doc ID: %s",docSessionId))
+  docStates[[docSessionId]]
+}
+
+## Gets the initial variable list for a document session state
+getInitVarList <- function() {
+  rlang::env_get(.sessionStateEnv.,"initVarList")
+}
+
+## Gets the initial variable versions for a document session state
+getInitVarVersions <- function() {
+  rlang::env_get(.sessionStateEnv.,"initVarVersions")
+}
+
+
+##-------------------
+## doc updates
+##-------------------
+
 ##This udpates th the doc state for any changes from the commands
-evaluateDocState <- function(localDocState,envir) {
+evaluateDocState <- function(docState,envir) {
   prevLine <- NULL
-  currentCmdIndex <- localDocState$cmdIndex
+  currentCmdIndex <- docState$cmdIndex
   
-  localDocState$lines <- lapply(localDocState$lines,function(line) {
+  docState$lines <- lapply(docState$lines,function(line) {
     ##new working line
     modLine <- line
 
     if(!is.null(prevLine)) {
-      prevLineId <- prevLine$id
+      prevLineId <- prevLine$lineId
       inIndex <- prevLine$outIndex
       inVarList <- prevLine$outVarList
       inVarVersions <- prevLine$outVarVersions
     }
     else {
       ##no previous line - use initial doc state
-      prevLineId <- INIT_ID
-      inIndex <- INIT_INDEX
-      inVarList <- localDocState$initVarList
-      inVarVersions <- localDocState$initVarVersions
+      prevLineId <- INIT_LINE_ID
+      inIndex <- INIT_CMD_INDEX
+      inVarList <- getInitVarList()
+      inVarVersions <- getInitVarVersions()
     }
     
     reval <- FALSE
@@ -166,11 +220,11 @@ evaluateDocState <- function(localDocState,envir) {
       else {
         ##no code inputs were changed
         ##carry over changed inputs that are not variables updated or deleted by lnie code
-        carryoverNames <- setDiff(names(modLine$inVarList),c(modLine$updated,modLine$deleted))
+        carryoverNames <- setdiff(names(modLine$inVarList),c(modLine$updated,modLine$deleted))
       
         modLine$outVarList[carryoverNames] <- inVarList[carryoverNames]
         modLine$outVarVersions[carryoverNames] <- inVarVersions[carryoverNames]
-        modLine$outVarIndex <- currentCmdIndex
+        modLine$outIndex <- currentCmdIndex
       }
     }
 
@@ -178,20 +232,20 @@ evaluateDocState <- function(localDocState,envir) {
     ## reevaluate if needed (this will also recalculate all outputs
     ##------------------------
     if(reval) {
-      modLine <- evalCode(modLine,currentCmdIndex,envir)
+      modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
     }
     
     prevLine <<- modLine
     modLine
   })
   
-  localDocState
+  docState
 }
 
-evalCode <- function(modLine,currentCmdIndex,envir) {
+evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   
   ## update environment if it is not in the right state
-  envVersion <- getEnvVersion(envir)
+  envVersion <- getEnvVersion()
   if( is.null(envVersion) || 
       (modLine$prevLineId != envVersion$lineId) ||
       (modLine$inIndex != envVersion$cmdIndex) ) {
@@ -200,7 +254,7 @@ evalCode <- function(modLine,currentCmdIndex,envir) {
   }
   
   ##clear the value of the env state
-  clearEnvVersion(envir)
+  clearEnvVersion()
   
   ##evaluate, printing outputs to the console
   tryCatch({
@@ -213,7 +267,7 @@ evalCode <- function(modLine,currentCmdIndex,envir) {
   )
   
   ##set the env state to the version given by this line id and this cmd index
-  setEnvVersion(envir,modLine$id,currentCmdIndex)
+  setEnvVersion(docSessionId,modLine$lineId,currentCmdIndex)
   
   ##save the final var list
   modLine <- updateLineOutputs(modLine,envir,currentCmdIndex)
@@ -235,7 +289,7 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   unchanged <- setdiff(kept,updated)
   
   ##set the versions for each variable value
-  newVarVersions = rep(paste(oldLine$id,currentCmdIndex,sep="|"),length(newVarList))
+  newVarVersions = rep(paste(oldLine$lineId,currentCmdIndex,sep="|"),length(newVarList))
   names(newVarVersions) = names(newVarList)
   newVarVersions[unchanged] = oldLine$inVarVersions[unchanged]
   
@@ -251,77 +305,64 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   newLine
 }
 
+##----------------------------
+## doc command implementations
+##----------------------------
+
 ##set up the command list
 commandList <- list()
 
-commandList$add <- function(localDocState,cmd) {
+## Executes an add command
+commandList$add <- function(docState,cmd) {
   
-  if( cmd$id %in% names(localDocState$lines) ) {
-    stop(sprintf("The id already exists: %s",cmd$id))
+  if( cmd$lineId %in% names(docState$lines) ) {
+    stop(sprintf("The line ID already exists: %s",cmd$lindId))
   }
 
-  if( (cmd$after < 0) || (cmd$after > length(localDocState$lines)) ) {
+  if( (cmd$after < 0) || (cmd$after > length(docState$lines)) ) {
     stop("Specified previous line does not exist")
   }
 
   ##create entry
-  entry <- list(id=cmd$id)
+  entry <- list(lineId=cmd$lineId)
   entry$code <- cmd$code
   entry$exprs <- rlang::parse_exprs(cmd$code)
   entry$codeInputs <- getDependencies(cmd$code)
-  entry$codeChangedIndex <- localDocState$cmdIndex
-  
-  # set later:
-  #entry$prevLineId
-  #entry$inIndex
-  #entry$inVarList
-  #entry$inVarVersions
-  #entry$outIndex
-  #entry$outVarlist
-  #entry$outVarVersion
-  #entry$created
-  #entry$updated
-  #entry$deleted
+  entry$codeChangedIndex <- docState$cmdIndex
 
   ##add to state and return
-  localDocState <- insertAfter(localDocState,entry,cmd$after)
+  docState <- insertAfter(docState,entry,cmd$after)
   
-  localDocState
+  docState
 }
 
-commandList$update <- function(localDocState,cmd) {
-  if( !(cmd$id %in% names(docState$lines)) ) {
-    stop(sprintf("The id is not found: %s",cmd$id))
+commandList$update <- function(docState,cmd) {
+  if( !(cmd$lineId %in% names(docState$lines)) ) {
+    stop(sprintf("Line ID not found: %s",cmd$lineId))
   }
   
-  entry <- localDocState$lines[[cmd$id]]
+  entry <- docState$lines[[cmd$lineId]]
 
   ##update entry
   entry$code <- cmd$code
   entry$exprs <- rlang::parse_exprs(cmd$code)
   entry$codeInputs <- getDependencies(cmd$code)
-  entry$codeChangedIndex <- localDocState$cmdIndex
+  entry$codeChangedIndex <- docState$cmdIndex
 
   ##add to state and return
-  localDocState$lines[[entry$id]] <- entry
+  docState$lines[[entry$lineId]] <- entry
 
-  localDocState
+  docState
 }
 
-commandList$delete <- function(localDocState,cmd) {
-  if( !(cmd$id %in% names(localDocState$lines)) ) {
-    stop(sprintf("The id is not found: %s",cmd$id))
+commandList$delete <- function(docState,cmd) {
+  if( !(cmd$lineId %in% names(docState$lines)) ) {
+    stop(sprintf("Line ID not found: %s",cmd$lindId))
   }
 
   ## delete entry
-  localDocState$lines[[cmd$id]] = NULL
+  docState$lines[[cmd$lineId]] = NULL
 
-  localDocState
+  docState
 }
-
-commandList$evaluate <- function(localDocState,cmd) {
-  ##no action here - no entries are changed
-  localDocState
-}
-
 
