@@ -10,7 +10,7 @@ getDependencies <- function(codeText,hiddenSymbols) {
 }
 
 ## This function loads the variable list from the current environment
-getEnvironmentVars <- function(envir) {
+getEnvVars <- function(envir) {
   envirVars <- sapply(names(envir),function(name) envir[[name]])
   names(envirVars) = names(envir)
 
@@ -30,4 +30,14 @@ insertAfter <- function(localDocState,entry,index) {
     localDocState$lines <- append(newWrappedEntry,localDocState$lines)
   }
   localDocState
+}
+
+setEnvVars <- function(envir,envVars) {
+  ## get all names in envir not including "excluded" - just docState for now
+  names <- names(envir)
+  names <- names[names != "docState"]
+  ##clear all these
+  rlang::env_unbind(envir,names)
+  ##set values from envVars
+  rlang::env_bind(envir,!!!envVars)  ## THIS WON'T WORK RIGHT FOR NULL!!!
 }

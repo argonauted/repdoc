@@ -37,7 +37,7 @@ getEvaluateCmd <- function(id) {
 ## This function loads an initial doc state based on the current environment
 initializeDocState <- function() {
   envir <- rlang::caller_env()
-  initVarList<-getEnvironmentVars(envir)
+  initVarList<-getEnvVars(envir)
   initVarVersions<-rep(INIT_VERSION,length(initVarList))
   names(initVarVersions) = names(initVarList)
   
@@ -50,6 +50,8 @@ initializeDocState <- function() {
   )
   
   rlang::env_bind(envir,docState=docState)
+  
+  setEnvVersion(envir,INIT_ID,INIT_INDEX)
 }
 
 
@@ -67,6 +69,8 @@ executeCommand <- function(cmd) {
   ## init
   localDocState <- docState
   envir <- rlang::caller_env()
+  
+  localDocState$cmdIndex <- docState$cmdIndex + 1
 
   ##execute command
   cmdFunc <- commandList[[cmd$type]]
@@ -82,6 +86,18 @@ executeCommand <- function(cmd) {
 ##======================
 ## Internal Functions
 ##======================
+
+setEnvVersion <- function(envir,lineId,cmdIndex) {
+  rlang::env_bind(envir,envVersion=list(lineId=lineId,cmdIndex=cmdIndex))
+}
+
+clearEnvVersion <- function(envir) {
+  rlang::env_bind(envir,envVersion=NULL)
+}
+
+getEnvVersion <- function(envir) {
+  rlang::env_get(envir,"envVersion")
+} 
 
 ##This udpates th the doc state for any changes from the commands
 evaluateDocState <- function(localDocState,envir) {
@@ -174,6 +190,18 @@ evaluateDocState <- function(localDocState,envir) {
 
 evalCode <- function(modLine,currentCmdIndex,envir) {
   
+  ## update environment if it is not in the right state
+  envVersion <- getEnvVersion(envir)
+  if( is.null(envVersion) || 
+      (modLine$prevLineId != envVersion$lineId) ||
+      (modLine$inIndex != envVersion$cmdIndex) ) {
+    ## we need to update the variables in the environment
+    setEnvVars(envir,modLine$inVarList)
+  }
+  
+  ##clear the value of the env state
+  clearEnvVersion(envir)
+  
   ##evaluate, printing outputs to the console
   tryCatch({
     ##this evaluates the exprs with autoprint, like the console does
@@ -184,6 +212,9 @@ evalCode <- function(modLine,currentCmdIndex,envir) {
   }
   )
   
+  ##set the env state to the version given by this line id and this cmd index
+  setEnvVersion(envir,modLine$id,currentCmdIndex)
+  
   ##save the final var list
   modLine <- updateLineOutputs(modLine,envir,currentCmdIndex)
   
@@ -192,7 +223,7 @@ evalCode <- function(modLine,currentCmdIndex,envir) {
 
 ## This updates the line outputs for a newly evaluated entry
 updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
-  newVarList <- getEnvironmentVars(envir)
+  newVarList <- getEnvVars(envir)
   
   ## MAKE SURE SOME OF THESE THING ARE PRESENT!!!
   ## see how to handle values on oldLine, in case some are missing
@@ -223,9 +254,7 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
 ##set up the command list
 commandList <- list()
 
-commandList$add <- function(docState,cmd) {
-  localDocState <- docState
-  localDocState$cmdIndex <- docState$cmdIndex + 1
+commandList$add <- function(localDocState,cmd) {
   
   if( cmd$id %in% names(localDocState$lines) ) {
     stop(sprintf("The id already exists: %s",cmd$id))
@@ -260,12 +289,11 @@ commandList$add <- function(docState,cmd) {
   localDocState
 }
 
-commandList$update <- function(docState,cmd) {
+commandList$update <- function(localDocState,cmd) {
   if( !(cmd$id %in% names(docState$lines)) ) {
     stop(sprintf("The id is not found: %s",cmd$id))
   }
   
-  localDocState <- docState
   entry <- localDocState$lines[[cmd$id]]
 
   ##update entry
