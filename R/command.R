@@ -27,6 +27,13 @@ deleteCmd <- function(docSessionId,lineId) {
   executeCommand(docSessionId,cmd)
 }
 
+## This function executes a multi command. It takes a list of
+## properly formatted child commands.
+multiCmd <- function(docSessionId,cmds) {
+  cmd <- list(type="multi", cmds=cmds)
+  executeCommand(docSessionId,cmd)
+}
+
 
 ##======================
 ## Main Functions
@@ -363,6 +370,26 @@ commandList$delete <- function(docState,cmd) {
   ## delete entry
   docState$lines[[cmd$lineId]] = NULL
 
+  docState
+}
+
+commandList$multi <- function(docState,cmd) {
+  
+  ## apply the child command code changes sequentially to the doc state
+  for(childCmd in cmd$cmds) {
+    ##validate the cmd
+    if( !("type" %in% names(childCmd)) ) {
+      stop("Child Command type not specified")
+    }
+    if( !(childCmd$type %in% names(commandList)) ) {
+      stop(sprintf("Child Command not found: %s",childCmd$type))
+    }
+    
+    ##execute command
+    cmdFunc <- commandList[[childCmd$type]]
+    docState <- cmdFunc(docState,childCmd)
+  }
+  
   docState
 }
 
