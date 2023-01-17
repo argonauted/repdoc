@@ -7,6 +7,10 @@ INIT_LINE_ID <- ""
 INIT_CMD_INDEX <- 0
 INIT_VERSION <- "|0"
 
+RANDOM_SEED_NAME <- ".Random.seed"
+
+SYSTEM_REF_VERSION <- "system"
+
 ##======================
 ## Command Helpers
 ##======================
@@ -196,8 +200,8 @@ evaluateDocState <- function(docState,envir) {
       modLine$inVarVersions <- inVarVersions
       
       ##clean this up - I do something similar for versions in other places
-      ##also. later we should get better versions for what I call here "system" variables
-      codeInputVersions <- rep("system",length(modLine$codeInputs))
+      ##also. later we should get better versions for what I call here SYSTEM_REF_VERSION variables
+      codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$codeInputs))
       names(codeInputVersions) <- modLine$codeInputs
       envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
       codeInputVersions[envirCodeInputs] <- modLine$inVarVersions[envirCodeInputs]
@@ -217,20 +221,31 @@ evaluateDocState <- function(docState,envir) {
       ## check if we need to reevaluate because of input change
       
       ## old inputs: codeInputversions = versions associated with code Inputs
-      ## FOR ALL CODE INPUTS. Use a "system" value if taken from the system
-      ## (later we should work that out!)
-      
       if( any(modLine$codeInputVersions != line$codeInputVersions) ) {
         ##code inputs were changed
         reval <- TRUE
       }
       else {
-        ##no code inputs were changed
-        ##carry over changed inputs that are not variables updated or deleted by lnie code
-        carryoverNames <- setdiff(names(modLine$inVarList),c(modLine$updated,modLine$deleted))
+        ## no code inputs were changed
+        ## copy the in var list to out var list
+        ## but keep the existing out values
+        outputs <- c(modLine$created,modLine$updated)
+        
+        outVarList <- modLine$inVarList
+        outVarList[outputs] <- modLine$outVarList[outputs]
+        
+        outVarVersions <- modLine$inVarVersions
+        outVarVersions[outputs] <- modLine$outVarVersions[outputs]
+        
+        ##we expect deletes to be inputs, but we will remove them in case they are not captured in dependencies
+        if(length(modLine$deleted) > 0) {
+          keptNameFlags <- !(names(outVarList) %in% modLine$deleted)
+          outVarList <- outVarList[keptNameFlags]
+          outVarVersions <- outVarList[keptNameFlags]
+        }
       
-        modLine$outVarList[carryoverNames] <- inVarList[carryoverNames]
-        modLine$outVarVersions[carryoverNames] <- inVarVersions[carryoverNames]
+        modLine$outVarList <- outVarList
+        modLine$outVarVersions <- outVarVersions
         modLine$outIndex <- currentCmdIndex
       }
     }
@@ -302,12 +317,41 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   
   ## set the new output values on the line
   newLine <- oldLine
+  
+  ##========================================================================
+  ## WORKAROUND FOR RANDOM SEED DEPENDENCY
+  ## As of now we dont' get the random see as a dependency. But if it is used,
+  ## it will also be udpated. So we will use this as a trigger to add it to code inputs.
+  ## (for the sake of set.seed, this is not an input, but that means just an extra evaluation of that code)
+  ## !!!:
+  ## This is messy and future error prone 
+  ## This should be cleaned up.
+  if( !(RANDOM_SEED_NAME %in% newLine$codeInputs) ) {
+    if(RANDOM_SEED_NAME %in% created) {
+      ##move from created to updated, since we will set this to be a code input
+      created = created[created != RANDOM_SEED_NAME]
+      updated = c(updated,RANDOM_SEED_NAME)
+      
+      ##add code input with version coming from system
+      newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      newLine$codeInputVersions[[RANDOM_SEED_NAME]] = SYSTEM_REF_VERSION
+    }
+    else if(RANDOM_SEED_NAME %in% updated) {
+      ##add code input with version coming from system in var versions
+      newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      newLine$codeInputVersions[[RANDOM_SEED_NAME]] = newLine$inVarVersions[RANDOM_SEED_NAME]
+    }
+  }
+  ##========================================================================
+  
   newLine$created <- created
   newLine$updated <- updated
   newLine$deleted <- deleted ##do we need this?
   newLine$outIndex <- currentCmdIndex
   newLine$outVarList <- newVarList
   newLine$outVarVersions <- newVarVersions
+  
+ 
   
   newLine
 }
