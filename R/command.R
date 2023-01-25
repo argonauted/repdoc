@@ -11,6 +11,8 @@ RANDOM_SEED_NAME <- ".Random.seed"
 
 SYSTEM_REF_VERSION <- "system"
 
+MESSAGE_HEADER <- "|$%%$|"
+
 ##======================
 ## Command Helpers
 ##======================
@@ -51,9 +53,7 @@ evaluate <- function(docSessionId) {
   ##save the state
   setDocState(docSessionId,docState)
   
-  ##TEMP RETURN VALUE - IF EVALUATION COMPLETE=========
-  docState$firstDirtyIndex > length(docState$lines)
-  ##===================================================
+  sendCompletionStatus(docState)
 }
 
 
@@ -124,9 +124,7 @@ executeCommand <- function(docSessionId,cmd) {
   ##save the state
   setDocState(docSessionId,docState)
   
-  ##TEMP RETURN VALUE - IF EVALUATION COMPLETE=========
-  docState$firstDirtyIndex > length(docState$lines)
-  ##===================================================
+  sendCompletionStatus(docState)
 }
 
 ##======================
@@ -319,8 +317,10 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   ##clear the value of the env state
   clearEnvVersion()
   
-  ##for now, this is how I communicate with client
-  print(sprintf("Evaluate session %s, line %s",docSessionId, modLine$lineId))
+  ##signal start of eval
+  sendMessage("evalStart",docSessionId,
+              list(session=jsonlite::unbox(docSessionId),
+                   line=jsonlite::unbox(modLine$lineId)) )
   
   ##evaluate, printing outputs to the console
   tryCatch({
@@ -335,8 +335,6 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   ##update the eval index
   modLine$codeEvalIndex <- modLine$codeChangedIndex
   modLine$inputEvalIndex <- modLine$codeInputIndex
-  
-  print("Evaluate complete")
   
   ##set the env state to the version given by this line id and this cmd index
   setEnvVersion(docSessionId,modLine$lineId,currentCmdIndex)
@@ -508,5 +506,35 @@ commandList$multi <- function(docState,cmd) {
   }
   
   docState
+}
+
+##---------------------------
+## utils
+##---------------------------
+
+## This sends the status of the document after completion of the evaluation
+## It includes:
+## - evalComplete - if false, further evaluation is necessary
+## - nextIndex - included if evaluation necessary. The line index that next needs to be evaluated
+sendCompletionStatus <- function(docState) {
+  evalComplete <- docState$firstDirtyIndex > length(docState$lines)
+  data <- list(evalComplete=jsonlite::unbox(evalComplete))
+  if(!evalComplete) {
+    data$nextIndex <- jsonlite::unbox(docState$firstDirtyIndex)
+  }
+  sendMessage(type="docStatus",docState$docSessionId,data)
+}
+
+
+## This function sends a data message to the client, encoding it
+## in the console output
+## "data" is typically a list object. It is converted using jsonlite:toJSON.
+## This translates simple values/single element vectors as JSON arrays. To avoid
+## this, the value should be set as jsonlite::unbox(value)
+sendMessage <- function(type,docSessionId,data) {
+  body <- list(type=jsonlite::unbox(type),
+               session=jsonlite::unbox(docSessionId),
+               data=data)
+  print(paste(MESSAGE_HEADER,jsonlite::toJSON(body),sep=""))
 }
 

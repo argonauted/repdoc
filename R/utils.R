@@ -38,3 +38,4 @@ setEnvVars <- function(envir,envVars) {
   ##set values from envVars
   rlang::env_bind(envir,!!!envVars)  ## BE CAREFUL OF NULL VALUES - I SHOULD PROBABLY DO THIS DIFFERENTLY
 }
+
