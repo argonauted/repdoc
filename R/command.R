@@ -11,7 +11,8 @@ RANDOM_SEED_NAME <- ".Random.seed"
 
 SYSTEM_REF_VERSION <- "system"
 
-MESSAGE_HEADER <- "|$%%$|"
+MESSAGE_HEADER <- "|$($|"
+MESSAGE_FOOTER <- "|$)$|"
 
 ##======================
 ## Command Helpers
@@ -318,9 +319,7 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   clearEnvVersion()
   
   ##signal start of eval
-  sendMessage("evalStart",docSessionId,
-              list(session=jsonlite::unbox(docSessionId),
-                   line=jsonlite::unbox(modLine$lineId)) )
+  sendMessage("evalStart",docSessionId,jsonlite::unbox(modLine$lineId) )
   
   ##evaluate, printing outputs to the console
   tryCatch({
@@ -479,7 +478,7 @@ commandList$delete <- function(docState,cmd) {
   ##update the firstDirtyIndex if needed
   currentLine <- which(names(docState$lines) == cmd$lineId)
   if(currentLine < docState$firstDirtyIndex) {
-    docState$firstDirtyIndex == docState$firstDirtyIndex - 1
+    docState$firstDirtyIndex <- currentLine
   }
 
   ## delete entry
@@ -535,6 +534,6 @@ sendMessage <- function(type,docSessionId,data) {
   body <- list(type=jsonlite::unbox(type),
                session=jsonlite::unbox(docSessionId),
                data=data)
-  print(paste(MESSAGE_HEADER,jsonlite::toJSON(body),sep=""))
+  print(paste(MESSAGE_HEADER,jsonlite::toJSON(body),MESSAGE_FOOTER,sep=""))
 }
 
