@@ -38,6 +38,24 @@ multiCmd <- function(docSessionId,cmds) {
   executeCommand(docSessionId,cmd)
 }
 
+## This function evaluates the next line in the session, if applicable
+evaluate <- function(docSessionId) {
+  ## init
+  docState <- getDocState(docSessionId)
+  if(is.null(docState)) stop(sprintf("Document session not found: %s",docSessionId))
+  envir <- rlang::global_env()
+  
+  ##update the doc state for the change to the code
+  docState <- evaluateDocState(docState,envir)
+  
+  ##save the state
+  setDocState(docSessionId,docState)
+  
+  ##TEMP RETURN VALUE - IF EVALUATION COMPLETE=========
+  docState$firstDirtyIndex > length(docState$lines)
+  ##===================================================
+}
+
 
 ##======================
 ## Main Functions
@@ -59,7 +77,7 @@ initializeSession <- function() {
   ##set the current global environment state
   setEnvVersion(INIT_DOC_SESSION_ID,INIT_LINE_ID,INIT_CMD_INDEX)
   
-  NULL
+  TRUE
 }
 
 ## This function should be called to initialize a document session
@@ -67,6 +85,7 @@ initializeSession <- function() {
 initializeDocState <- function(docSessionId) {
   docState <- list(
     docSessionId=docSessionId,
+    firstDirtyIndex=1,
     lines=list(),
     cmdIndex=INIT_CMD_INDEX
   )
@@ -105,7 +124,9 @@ executeCommand <- function(docSessionId,cmd) {
   ##save the state
   setDocState(docSessionId,docState)
   
-  NULL
+  ##TEMP RETURN VALUE - IF EVALUATION COMPLETE=========
+  docState$firstDirtyIndex > length(docState$lines)
+  ##===================================================
 }
 
 ##======================
@@ -118,10 +139,9 @@ executeCommand <- function(docSessionId,cmd) {
 
 ## Stores the version for the global environment
 setEnvVersion <- function(docSessionId,lineId,cmdIndex) {
-  rlang::env_bind(.sessionStateEnv.,envVersion=list(docSessionId=docSessionId,
-                                                    lineId=lineId,
-                                                    cmdIndex=cmdIndex))
-  NULL
+  envVersion  <- list(docSessionId=docSessionId,lineId=lineId,cmdIndex=cmdIndex)
+  rlang::env_bind(.sessionStateEnv.,envVersion=envVersion)
+  envVersion
 }
 
 ## Sets the version of the global environment to NULL, symoblizing an unknown state
@@ -140,6 +160,7 @@ setDocState <- function(docSessionId,docState) {
   docStates <- rlang::env_get(.sessionStateEnv.,"docStates")
   docStates[[docSessionId]] = docState
   rlang::env_bind(.sessionStateEnv.,docStates=docStates)
+  docState
 }
 
 ## Gets the doc state for the given session ID
@@ -166,12 +187,19 @@ getInitVarVersions <- function() {
 
 ##This udpates th the doc state for any changes from the commands
 evaluateDocState <- function(docState,envir) {
-  prevLine <- NULL
-  currentCmdIndex <- docState$cmdIndex
   
-  docState$lines <- lapply(docState$lines,function(line) {
+  ##working variables
+  currentCmdIndex <- docState$cmdIndex
+  firstReval <- TRUE
+  evaluationInterrupted <- FALSE
+  
+  ##loop to evaluate un-evaluated lines, up until we get to the second
+  ##break from loop on the second to be evaluated, without evaluating
+  while((docState$firstDirtyIndex <= length(docState$lines))&&(!evaluationInterrupted)) {
+    
     ##new working line
-    modLine <- line
+    prevLine <- if (docState$firstDirtyIndex > 1) docState$lines[[docState$firstDirtyIndex - 1]] else NULL
+    modLine <- docState$lines[[docState$firstDirtyIndex]]
 
     if(!is.null(prevLine)) {
       prevLineId <- prevLine$lineId
@@ -188,7 +216,7 @@ evaluateDocState <- function(docState,envir) {
     }
     
     reval <- FALSE
-    inputsChanged <- FALSE
+    nonCodeInputsChanged <- FALSE
     
     ##------------------------
     ## Process an input change
@@ -205,61 +233,74 @@ evaluateDocState <- function(docState,envir) {
       names(codeInputVersions) <- modLine$codeInputs
       envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
       codeInputVersions[envirCodeInputs] <- modLine$inVarVersions[envirCodeInputs]
-      modLine$codeInputVersions <- codeInputVersions
       
-      inputsChanged = TRUE
+      ##update code input versions if code is newer than the inputs or any inputs change
+      if( (modLine$codeChangedIndex > modLine$codeInputIndex) || any(codeInputVersions != modLine$codeInputVersions) ) {
+        modLine$codeInputVersions = codeInputVersions
+        modLine$codeInputIndex = currentCmdIndex
+      }
+      else {
+        nonCodeInputsChanged = TRUE
+      }
     }
     
     ##------------------------
     ## check if we need to reevaluate
     ##------------------------
 
-    if( identical(line$codeChangedIndex,currentCmdIndex) ) {
+    if( !identical(modLine$codeChangedIndex,modLine$codeEvalIndex) ) {
+      ##not yet evaluated for new code
       reval <- TRUE
     }
-    else if(inputsChanged) {
-      ## check if we need to reevaluate because of input change
+    else if( !identical(modLine$codeInputIndex,modLine$inputEvalIndex) ) {
+      ##not yet evaluated for new inputs
+      reval <- TRUE
+    }
+    else if(nonCodeInputsChanged) {
+      ## no code inputs were changed
+      ## carry over any non-code inputs to the outputs that are not code outputs
+      ## (This means we need to get the code outputs right!)
+      outputs <- c(modLine$created,modLine$updated)
       
-      ## old inputs: codeInputversions = versions associated with code Inputs
-      if( any(modLine$codeInputVersions != line$codeInputVersions) ) {
-        ##code inputs were changed
-        reval <- TRUE
-      }
-      else {
-        ## no code inputs were changed
-        ## copy the in var list to out var list
-        ## but keep the existing out values
-        outputs <- c(modLine$created,modLine$updated)
-        
-        outVarList <- modLine$inVarList
-        outVarList[outputs] <- modLine$outVarList[outputs]
-        
-        outVarVersions <- modLine$inVarVersions
-        outVarVersions[outputs] <- modLine$outVarVersions[outputs]
-        
-        ##we expect deletes to be inputs, but we will remove them in case they are not captured in dependencies
-        if(length(modLine$deleted) > 0) {
-          keptNameFlags <- !(names(outVarList) %in% modLine$deleted)
-          outVarList <- outVarList[keptNameFlags]
-          outVarVersions <- outVarList[keptNameFlags]
-        }
+      outVarList <- modLine$inVarList
+      outVarList[outputs] <- modLine$outVarList[outputs]
       
-        modLine$outVarList <- outVarList
-        modLine$outVarVersions <- outVarVersions
-        modLine$outIndex <- currentCmdIndex
+      outVarVersions <- modLine$inVarVersions
+      outVarVersions[outputs] <- modLine$outVarVersions[outputs]
+      
+      ##we expect deletes to be inputs, but we will remove them in case they are not captured in dependencies
+      if(length(modLine$deleted) > 0) {
+        keptNameFlags <- !(names(outVarList) %in% modLine$deleted)
+        outVarList <- outVarList[keptNameFlags]
+        outVarVersions <- outVarList[keptNameFlags]
       }
+    
+      modLine$outVarList <- outVarList
+      modLine$outVarVersions <- outVarVersions
+      modLine$outIndex <- currentCmdIndex
     }
 
     ##------------------------
-    ## reevaluate if needed (this will also recalculate all outputs
+    ## reevaluate if needed (this will also recalculate all outputs)
     ##------------------------
     if(reval) {
-      modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
+      if(firstReval) {
+        modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
+        firstReval <- FALSE
+      }
+      else {
+        ##do not evaluate, and stop checking lines
+        ##we can only evaluate once per request (for now)
+        evaluationInterrupted <- TRUE
+      }
     }
     
-    prevLine <<- modLine
-    modLine
-  })
+    ##update state for new line
+    docState$lines[[docState$firstDirtyIndex]] <- modLine
+    if(!evaluationInterrupted) {
+      docState$firstDirtyIndex <- docState$firstDirtyIndex + 1
+    }
+  }
   
   docState
 }
@@ -278,6 +319,9 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   ##clear the value of the env state
   clearEnvVersion()
   
+  ##for now, this is how I communicate with client
+  print(sprintf("Evaluate session %s, line %s",docSessionId, modLine$lineId))
+  
   ##evaluate, printing outputs to the console
   tryCatch({
     ##this evaluates the exprs with autoprint, like the console does
@@ -287,6 +331,12 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
     message(err)
   }
   )
+  
+  ##update the eval index
+  modLine$codeEvalIndex <- modLine$codeChangedIndex
+  modLine$inputEvalIndex <- modLine$codeInputIndex
+  
+  print("Evaluate complete")
   
   ##set the env state to the version given by this line id and this cmd index
   setEnvVersion(docSessionId,modLine$lineId,currentCmdIndex)
@@ -351,8 +401,6 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   newLine$outVarList <- newVarList
   newLine$outVarVersions <- newVarVersions
   
- 
-  
   newLine
 }
 
@@ -373,6 +421,10 @@ commandList$add <- function(docState,cmd) {
   if( (cmd$after < 0) || (cmd$after > length(docState$lines)) ) {
     stop("Specified previous line does not exist")
   }
+  
+  ##====================================================
+  ##ADD UDPATE TO UNCHECKED LINES FOR CODE CHANGE!!!
+  ##===================================================
 
   ##create entry
   entry <- list(lineId=cmd$lineId)
@@ -380,9 +432,18 @@ commandList$add <- function(docState,cmd) {
   entry$exprs <- rlang::parse_exprs(cmd$code)
   entry$codeInputs <- getDependencies(cmd$code)
   entry$codeChangedIndex <- docState$cmdIndex
+  
+  entry$codeInputVersions <- character()
+  entry$codeInputIndex <- 0
 
-  ##add to state and return
+  ##add to state
   docState <- insertAfter(docState,entry,cmd$after)
+  
+  ##update the firstDirtyIndex if needed
+  currentLine <- which(names(docState$lines) == cmd$lineId)
+  if(currentLine < docState$firstDirtyIndex) {
+      docState$firstDirtyIndex <- currentLine
+  }
   
   docState
 }
@@ -402,6 +463,12 @@ commandList$update <- function(docState,cmd) {
 
   ##add to state and return
   docState$lines[[entry$lineId]] <- entry
+  
+  ##update the firstDirtyIndex if needed
+  currentLine <- which(names(docState$lines) == cmd$lineId)
+  if(currentLine < docState$firstDirtyIndex) {
+    docState$firstDirtyIndex <- currentLine
+  }
 
   docState
 }
@@ -409,6 +476,12 @@ commandList$update <- function(docState,cmd) {
 commandList$delete <- function(docState,cmd) {
   if( !(cmd$lineId %in% names(docState$lines)) ) {
     stop(sprintf("Line ID not found: %s",cmd$lindId))
+  }
+  
+  ##update the firstDirtyIndex if needed
+  currentLine <- which(names(docState$lines) == cmd$lineId)
+  if(currentLine < docState$firstDirtyIndex) {
+    docState$firstDirtyIndex == docState$firstDirtyIndex - 1
   }
 
   ## delete entry
