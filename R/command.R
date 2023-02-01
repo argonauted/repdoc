@@ -322,14 +322,19 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   sendMessage("evalStart",docSessionId,jsonlite::unbox(modLine$lineId) )
   
   ##evaluate, printing outputs to the console
-  tryCatch({
-    ##this evaluates the exprs with autoprint, like the console does
-    withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
-  },
-  error=function(err) {
-    message(err)
+  if(modLine$parseValid) {
+    tryCatch({
+      ##this evaluates the exprs with autoprint, like the console does
+      withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
+    },
+    error=function(err) {
+      message(err)
+    }
+    )
   }
-  )
+  else {
+    message(modLine$parseMsg)
+  }
   
   ##update the eval index
   modLine$codeEvalIndex <- modLine$codeChangedIndex
@@ -425,9 +430,7 @@ commandList$add <- function(docState,cmd) {
 
   ##create entry
   entry <- list(lineId=cmd$lineId)
-  entry$code <- cmd$code
-  entry$exprs <- rlang::parse_exprs(cmd$code)
-  entry$codeInputs <- getDependencies(cmd$code)
+  entry <- processCode(entry,cmd$code)
   entry$codeChangedIndex <- docState$cmdIndex
   
   entry$codeInputVersions <- character()
@@ -453,9 +456,7 @@ commandList$update <- function(docState,cmd) {
   entry <- docState$lines[[cmd$lineId]]
 
   ##update entry
-  entry$code <- cmd$code
-  entry$exprs <- rlang::parse_exprs(cmd$code)
-  entry$codeInputs <- getDependencies(cmd$code)
+  entry <- processCode(entry,cmd$code)
   entry$codeChangedIndex <- docState$cmdIndex
 
   ##add to state and return
@@ -505,6 +506,27 @@ commandList$multi <- function(docState,cmd) {
   }
   
   docState
+}
+
+processCode <- function(entry,code) {
+  entry$code <- code
+  
+  tryCatch({
+      entry$exprs <- rlang::parse_exprs(code)
+      entry$parseMsg <- NULL
+      entry$parseValid <- TRUE
+    },
+    error=function(err) {
+      entry$exprs <<- NULL
+      entry$parseMsg <<- err$message
+      entry$parseValid <<- FALSE
+    }
+    ##TBD - add other handlers, for warnings or messages
+  )
+  
+  entry$codeInputs <- if(entry$parseValid) getDependencies(code) else character()
+  
+  entry
 }
 
 ##---------------------------
