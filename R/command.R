@@ -19,25 +19,37 @@ MESSAGE_FOOTER <- "|$)$|"
 ##======================
 
 ## This function creates an "add" command
-addCmd <- function(docSessionId,lineId,code,after) {
+addCmd <- function(docSessionId,lineId,code,after,cmdIndex=NULL) {
   cmd <- list(type="add",lineId=lineId,code=code,after=after)
+  if(!is.null(cmdIndex)) {
+    cmd$cmdIndex = cmdIndex
+  }
   executeCommand(docSessionId,cmd)
 }
 
-updateCmd <- function(docSessionId,lineId,code) {
+updateCmd <- function(docSessionId,lineId,code,cmdIndex=NULL) {
   cmd <- list(type="update",lineId=lineId,code=code)
+  if(!is.null(cmdIndex)) {
+    cmd$cmdIndex = cmdIndex
+  }
   executeCommand(docSessionId,cmd)
 }
 
-deleteCmd <- function(docSessionId,lineId) {
+deleteCmd <- function(docSessionId,lineId,cmdIndex=NULL) {
   cmd <- list(type="delete",lineId=lineId)
+  if(!is.null(cmdIndex)) {
+    cmd$cmdIndex = cmdIndex
+  }
   executeCommand(docSessionId,cmd)
 }
 
 ## This function executes a multi command. It takes a list of
 ## properly formatted child commands.
-multiCmd <- function(docSessionId,cmds) {
+multiCmd <- function(docSessionId,cmds,cmdIndex=NULL) {
   cmd <- list(type="multi", cmds=cmds)
+  if(!is.null(cmdIndex)) {
+    cmd$cmdIndex = cmdIndex
+  }
   executeCommand(docSessionId,cmd)
 }
 
@@ -113,7 +125,16 @@ executeCommand <- function(docSessionId,cmd) {
   if(is.null(docState)) stop(sprintf("Document session not found: %s",docSessionId))
   envir <- rlang::global_env()
   
-  docState$cmdIndex <- docState$cmdIndex + 1
+  if("cmdIndex" %in% names(cmd)) {
+    if(cmd$cmdIndex <= docState$cmdIndex) {
+      error(sprintf("Invalid command index sumbitted! previous = %s, sumitted = %s",docState$cmdIndex, cmd$cmdIndex))
+    }
+    
+    docState$cmdIndex <- cmd$cmdIndex
+  }
+  else {
+    docState$cmdIndex <- docState$cmdIndex + 1
+  }
 
   ##execute command
   cmdFunc <- commandList[[cmd$type]]
@@ -319,7 +340,7 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   clearEnvVersion()
   
   ##signal start of eval
-  sendMessage("evalStart",docSessionId,jsonlite::unbox(modLine$lineId) )
+  sendEvalMessage(docSessionId,modLine$lineId,currentCmdIndex)
   
   ##evaluate, printing outputs to the console
   if(modLine$parseValid) {
@@ -545,13 +566,24 @@ sendConsoleMessage <- function(msgType,msg,docSessionId) {
                    msg=jsonlite::unbox(msg)))
 }
 
+
+sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
+  sendMessage("evalStart",docSessionId,list(
+    lineId=jsonlite::unbox(lineId),
+    cmdIndex=jsonlite::unbox(cmdIndex)
+  ))
+}
+
 ## This sends the status of the document after completion of the evaluation
 ## It includes:
 ## - evalComplete - if false, further evaluation is necessary
 ## - nextIndex - included if evaluation necessary. The line index that next needs to be evaluated
 sendCompletionStatus <- function(docState) {
   evalComplete <- docState$firstDirtyIndex > length(docState$lines)
-  data <- list(evalComplete=jsonlite::unbox(evalComplete))
+  data <- list(
+    evalComplete=jsonlite::unbox(evalComplete),
+    cmdIndex=jsonlite::unbox(docState$cmdIndex)
+  )
   if(!evalComplete) {
     nextLineId <- docState$lines[[docState$firstDirtyIndex]]$lineId
     data$nextLineId <- jsonlite::unbox(nextLineId)
