@@ -328,12 +328,18 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
       withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
     },
     error=function(err) {
-      message(err)
+      sendConsoleMessage("stderr",err$message,docSessionId)
+    },
+    warning=function(wrn) {
+      sendConsoleMessage("stdwrn",wrn$message,docSessionId)
+    },
+    message=function(m) {
+      sendConsoleMessage("stdmsg",m$message,docSessionId)
     }
     )
   }
   else {
-    message(modLine$parseMsg)
+    sendConsoleMessage("stderr",modLine$parseMsg,docSessionId)
   }
   
   ##update the eval index
@@ -532,6 +538,12 @@ processCode <- function(entry,code) {
 ##---------------------------
 ## utils
 ##---------------------------
+
+sendConsoleMessage <- function(msgType,msg,docSessionId) {
+  sendMessage("console",docSessionId,
+              list(msgType=jsonlite::unbox(msgType),
+                   msg=jsonlite::unbox(msg)))
+}
 
 ## This sends the status of the document after completion of the evaluation
 ## It includes:
