@@ -553,7 +553,8 @@ sendCompletionStatus <- function(docState) {
   evalComplete <- docState$firstDirtyIndex > length(docState$lines)
   data <- list(evalComplete=jsonlite::unbox(evalComplete))
   if(!evalComplete) {
-    data$nextIndex <- jsonlite::unbox(docState$firstDirtyIndex)
+    nextLineId <- docState$lines[[docState$firstDirtyIndex]]$lineId
+    data$nextLineId <- jsonlite::unbox(nextLineId)
   }
   sendMessage(type="docStatus",docState$docSessionId,data)
 }
