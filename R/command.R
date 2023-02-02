@@ -63,10 +63,12 @@ evaluate <- function(docSessionId) {
   ##update the doc state for the change to the code
   docState <- evaluateDocState(docState,envir)
   
+  ##we need to ensure these both happen or fail###########
+  ##send cmd complete msg
+  sendCompletionStatus(docState)
   ##save the state
   setDocState(docSessionId,docState)
-  
-  sendCompletionStatus(docState)
+  ########################################################
 }
 
 
@@ -102,8 +104,8 @@ initializeDocState <- function(docSessionId) {
     lines=list(),
     cmdIndex=INIT_CMD_INDEX
   )
-  
   setDocState(docSessionId,docState)
+  sendCompletionStatus(docState)
   
   docState
 }
@@ -143,10 +145,12 @@ executeCommand <- function(docSessionId,cmd) {
   ##update the doc state for the change to the code
   docState <- evaluateDocState(docState,envir)
 
+  ##we need to ensure these both happen or fail###########
+  ##send cmd complete msg
+  sendCompletionStatus(docState)
   ##save the state
   setDocState(docSessionId,docState)
-  
-  sendCompletionStatus(docState)
+  ########################################################
 }
 
 ##======================
@@ -586,6 +590,7 @@ sendCompletionStatus <- function(docState) {
   )
   if(!evalComplete) {
     nextLineId <- docState$lines[[docState$firstDirtyIndex]]$lineId
+    data$nextLineIndex <- jsonlite::unbox(docState$firstDirtyIndex)
     data$nextLineId <- jsonlite::unbox(nextLineId)
   }
   sendMessage(type="docStatus",docState$docSessionId,data)
