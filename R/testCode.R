@@ -14,8 +14,7 @@ processExpr <- function(astEntry) {
     sprintf("(Symbol,%s)",getEntryValue(astList))
   }
   else if(rlang::is_call(astEntry)) {
-    callType <- getEntryValue(astList)
-    sprintf("(Call,%s,%s)",callType,getCallArgs(callType,astList))
+    getCallText(astList)
   }
   else if(rlang::is_pairlist(astEntry)) {
     stop("pairlist!")
@@ -29,42 +28,48 @@ getEntryValue <- function(astList) {
   as.character(astList[[1]])
 }
 
-getCallArgs <- function(callType,astList) {
+getCallText <- function(astList) {
+  callType <- getEntryValue(astList)
   if(callType == "function") {
     paramList <- getParamList(astList[[2]])
     body <- processExpr(astList[[3]])
-    paste(paramList,",",body,sep="")
+    sprintf("FunctionDef(%s,%s)",paramList,body)
   }
   else if(length(astList) > 1) {
-    getArgList(tail(astList,-1))
+    sprintf("StdCall(%s,%s)",processExpr(astList[[1]]),getArgList(tail(astList,-1)))
   }
   else {
-    "-"
+    sprintf("StdCall(%s)",processExpr(astList[[1]]))
   }
 }
 
+##Uggh!! need to fix these
 getArgList <- function(astList) {
   argList <- sapply(1:length(astList),function(i) {
-      arg <- list(arg=processExpr(astList[[i]]))
-      if(!is.null(names(astList))) {
-        name <- names(astList)[i]
-        if(name != "") arg$label <- name
-      }
-      arg
+    argExprText <- processExpr(astList[[i]])
+    if((!is.null(names(astList)))&&(names(astList)[i] != "")) {
+      sprintf('ArgValue(Identifier,"=",%s)',argExprText)
+    }
+    else {
+      sprintf('ArgValue(%s)',argExprText)
+    }
   })
-    
-  paste("(ArgList,",paste(argList,collapse=","),")",sep="")
+  sprintf("ArgList(%s)",paste(argList,collapse=","))
 }
 
 getParamList <- function(astEntry) {
   astList = as.list(astEntry)
   
   paramList <- sapply(1:length(astList),function(i) {
-    param <- list(param=names(astList)[[i]])
-    if(class(astList[[i]]) != "name") param$default <- processExpr(astList[[i]])
-    param
+    ##we don't actually use the name, just the "Identifier" token
+    if(class(astList[[i]]) != "name") {
+      sprint("ParamValue(Identifier,"=",%s)",processExpr(astList[[i]]))
+    }
+    else {
+      "ParamValue(Identifier)"
+    }
   })
-  paste("(ParamList,",paste(paramList,collapse=","),")",sep="")
+  sprintf("ParamList,(%s)",paste(paramList,collapse=","))
 }
 
 
