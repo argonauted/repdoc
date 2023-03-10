@@ -129,7 +129,7 @@ executeCommand <- function(docSessionId,cmd) {
   
   if("cmdIndex" %in% names(cmd)) {
     if(cmd$cmdIndex <= docState$cmdIndex) {
-      error(sprintf("Invalid command index sumbitted! previous = %s, sumitted = %s",docState$cmdIndex, cmd$cmdIndex))
+      stop(sprintf("Invalid command index sumbitted! previous = %s, sumitted = %s",docState$cmdIndex, cmd$cmdIndex))
     }
     
     docState$cmdIndex <- cmd$cmdIndex
