@@ -6,7 +6,28 @@ getDependencies <- function(codeText,hiddenSymbols) {
   closureText <- sprintf("function() {\n%s\n}",codeText)
   closureExpr <- rlang::parse_expr(closureText)
   closure <- eval(closureExpr)
-  codetools::findGlobals(closure)
+  deps <- codetools::findGlobals(closure)
+  ## LHS functions don't work properly here (at least with <-, they do work with <<-)
+  ## If there is a LHS function, add the local variables to the dependencies
+  if(includesLHSFunc(deps)) {
+    deps <- addLocalsToDeps(deps,codeText)
+  } 
+  deps
+}
+
+## This function checks if there are any LHS functions in the list of symbols
+includesLHSFunc <- function(s) {
+  any(s[grep(".<-$",s)] != "<<-")
+}
+
+getLocals <- function(codeText) {
+  codetools::findLocals(rlang::parse_expr(codeText))
+}
+
+## This function gets any local variables in the codeText and adds them to the deps list
+addLocalsToDeps <- function(deps,codeText) {
+  lcls <- getLocals(codeText)
+  union(lcls,deps)
 }
 
 ## This function loads the variable list from the current environment
