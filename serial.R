@@ -5,6 +5,11 @@ serializeValues <- function(valueList,vex.len=8,list.len=8) {
 }
 
 makeResult <- function(jsonList,val,nm) {
+  if(startsWith(nm,".")) {
+    ## ignore names starting with a period
+    return(NULL)
+  }
+  
   modVal <- serialize(val)
   if(!is.null(modVal)) {
     jsonList[[nm]] <- modVal
