@@ -377,6 +377,9 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   ##save the final var list
   modLine <- updateLineOutputs(modLine,envir,currentCmdIndex)
   
+  ## send variable values
+  sendValuesMessage(docSessionId,modLine)
+  
   modLine
 }
 
@@ -576,6 +579,18 @@ sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
     lineId=jsonlite::unbox(lineId),
     cmdIndex=jsonlite::unbox(cmdIndex)
   ))
+}
+
+sendValuesMessage <- function(docSessionId,lineObj) {
+  ## vals <- lineObj$outVarList[c(lineObj$created,lineObj$updated)]
+  ## vals <- vals[!is.function(vals) & names(vals)]
+  ## if(length(vals) > 0) {
+    ##I NEED A FUNCTION TO CONVERT THE VALUES TO A STRING!!!
+    ## sendMessage("values",docSessionId,list(
+    ##   lineId=jsonlite::unbox(lineObj$lineId),
+    ##  values=jsonlite::unbox(smry)
+    ## ))
+  ## }
 }
 
 ## This sends the status of the document after completion of the evaluation
