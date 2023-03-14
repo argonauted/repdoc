@@ -582,15 +582,16 @@ sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
 }
 
 sendValuesMessage <- function(docSessionId,lineObj) {
-  ## vals <- lineObj$outVarList[c(lineObj$created,lineObj$updated)]
-  ## vals <- vals[!is.function(vals) & names(vals)]
-  ## if(length(vals) > 0) {
-    ##I NEED A FUNCTION TO CONVERT THE VALUES TO A STRING!!!
-    ## sendMessage("values",docSessionId,list(
-    ##   lineId=jsonlite::unbox(lineObj$lineId),
-    ##  values=jsonlite::unbox(smry)
-    ## ))
-  ## }
+  vals <- lineObj$outVarList[c(lineObj$created,lineObj$updated)]
+  ##vals <- vals[!is.function(vals) & !startsWith(names(vals),".")]
+  for(nm in names(vals)) {
+    if(!startsWith(nm,".")) {
+      val <- vals[[nm]]
+      if(!is.function(val)) {
+        print(nm); str(val)
+      }
+    }
+  }
 }
 
 ## This sends the status of the document after completion of the evaluation
