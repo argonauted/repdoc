@@ -153,6 +153,35 @@ executeCommand <- function(docSessionId,cmd) {
   ########################################################
 }
 
+## This Function changes the current data in the global context
+## For lineId, the Id of the previous line should be set, to get the 
+## initial state for a given line.
+setActiveLine <- function(docSessionId,lineId) {
+  ## FIX ERROR HANDLING
+  docState <- getDocState(docSessionId) ## this executes a stop, not returns null
+  if(!is.null(docState)) {
+    lineState <- docState$lines[[lineId]]
+    if(!is.null(lineState)) {
+      envVersion <- getEnvVersion()
+      if( is.null(envVersion) || 
+          (docSessionId != envVersion$docSessionId) ||
+          (lineId != envVersion$lineId) ||
+          (lineState$outIndex != envVersion$cmdIndex) ) {
+        clearEnvVersion()
+        setEnvVars(rlang::global_env(),lineState$outVarList)
+        setEnvVersion(docSessionId,lineId,lineState$outIndex)
+      }
+      TRUE
+    }
+    else {
+      FALSE # line id not found
+    }
+  }
+  else {
+    FALSE #document not found
+  }
+}
+
 ##======================
 ## Internal Functions
 ##======================
@@ -334,6 +363,7 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   ## update environment if it is not in the right state
   envVersion <- getEnvVersion()
   if( is.null(envVersion) || 
+      (docSessionId != envVersion$docSessionId) ||
       (modLine$prevLineId != envVersion$lineId) ||
       (modLine$inIndex != envVersion$cmdIndex) ) {
     ## we need to update the variables in the environment
