@@ -171,6 +171,7 @@ setActiveLine <- function(docSessionId,lineId) {
         setEnvVars(rlang::global_env(),lineState$outVarList)
         setEnvVersion(docSessionId,lineId,lineState$outIndex)
       }
+      sendActiveLineStatus(docSessionId,lineId)
       TRUE
     }
     else {
@@ -642,6 +643,13 @@ sendCompletionStatus <- function(docState) {
   sendMessage(type="docStatus",docState$docSessionId,data)
 }
 
+sendActiveLineStatus <- function(docSessionId,lineId) {
+  data <- list(
+    docSessionId=jsonlite::unbox(docSessionId),
+    lineId=jsonlite::unbox(lineId)
+  )
+  sendMessage(type="ActiveLineStatus",docSessionId,data)
+}
 
 ## This function sends a data message to the client, encoding it
 ## in the console output
