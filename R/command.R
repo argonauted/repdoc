@@ -24,7 +24,9 @@ addCmd <- function(docSessionId,lineId,code,after,cmdIndex=NULL) {
   if(!is.null(cmdIndex)) {
     cmd$cmdIndex = cmdIndex
   }
-  executeCommand(docSessionId,cmd)
+  ##Temp change for breakpoint/browser investigation
+  ##For this, we must load environment for the entry point (or get the caller env for the first function)
+  executeCommand(docSessionId,cmd,envir=rlang::caller_env())
 }
 
 updateCmd <- function(docSessionId,lineId,code,cmdIndex=NULL) {
@@ -32,7 +34,9 @@ updateCmd <- function(docSessionId,lineId,code,cmdIndex=NULL) {
   if(!is.null(cmdIndex)) {
     cmd$cmdIndex = cmdIndex
   }
-  executeCommand(docSessionId,cmd)
+  ##Temp change for breakpoint/browser investigation
+  ##For this, we must load environment for the entry point (or get the caller env for the first function)
+  executeCommand(docSessionId,cmd,envir=rlang::caller_env())
 }
 
 deleteCmd <- function(docSessionId,lineId,cmdIndex=NULL) {
@@ -40,7 +44,9 @@ deleteCmd <- function(docSessionId,lineId,cmdIndex=NULL) {
   if(!is.null(cmdIndex)) {
     cmd$cmdIndex = cmdIndex
   }
-  executeCommand(docSessionId,cmd)
+  ##Temp change for breakpoint/browser investigation
+  ##For this, we must load environment for the entry point (or get the caller env for the first function)
+  executeCommand(docSessionId,cmd,envir=rlang::caller_env())
 }
 
 ## This function executes a multi command. It takes a list of
@@ -50,7 +56,9 @@ multiCmd <- function(docSessionId,cmds,cmdIndex=NULL) {
   if(!is.null(cmdIndex)) {
     cmd$cmdIndex = cmdIndex
   }
-  executeCommand(docSessionId,cmd)
+  ##Temp change for breakpoint/browser investigation
+  ##For this, we must load environment for the entry point (or get the caller env for the first function)
+  executeCommand(docSessionId,cmd,envir=rlang::caller_env())
 }
 
 ## This function evaluates the next line in the session, if applicable
@@ -58,7 +66,11 @@ evaluate <- function(docSessionId) {
   ## init
   docState <- getDocState(docSessionId)
   if(is.null(docState)) stop(sprintf("Document session not found: %s",docSessionId))
-  envir <- rlang::global_env()
+  
+  ##Temp change for breakpoint/browser investigation
+  ##For this, we must load environment for the entry point (or get the caller env for the first function)
+  ##envir <- rlang::global_env()
+  envir <- rlang::caller_env()
   
   ##update the doc state for the change to the code
   docState <- evaluateDocState(docState,envir)
@@ -112,7 +124,10 @@ initializeDocState <- function(docSessionId) {
 
 
 ## This function executes the given command in the given document session
-executeCommand <- function(docSessionId,cmd) {
+executeCommand <- function(docSessionId,cmd,envir=NULL) {
+  ##Temp change for breakpoint/browser investigation
+  ##envir <- rlang::global_env()
+  if(is.null(envir)) envir <- rlang::caller_env()
 
   ##validate the cmd
   if( !("type" %in% names(cmd)) ) {
@@ -125,7 +140,6 @@ executeCommand <- function(docSessionId,cmd) {
   ## init
   docState <- getDocState(docSessionId)
   if(is.null(docState)) stop(sprintf("Document session not found: %s",docSessionId))
-  envir <- rlang::global_env()
   
   if("cmdIndex" %in% names(cmd)) {
     if(cmd$cmdIndex <= docState$cmdIndex) {
@@ -157,30 +171,40 @@ executeCommand <- function(docSessionId,cmd) {
 ## For lineId, the Id of the previous line should be set, to get the 
 ## initial state for a given line.
 setActiveLine <- function(docSessionId,lineId) {
-  ## FIX ERROR HANDLING
-  docState <- getDocState(docSessionId) ## this executes a stop, not returns null
-  if(!is.null(docState)) {
-    lineState <- docState$lines[[lineId]]
-    if(!is.null(lineState)) {
-      envVersion <- getEnvVersion()
-      if( is.null(envVersion) || 
-          (docSessionId != envVersion$docSessionId) ||
-          (lineId != envVersion$lineId) ||
-          (lineState$outIndex != envVersion$cmdIndex) ) {
-        clearEnvVersion()
-        setEnvVars(rlang::global_env(),lineState$outVarList)
-        setEnvVersion(docSessionId,lineId,lineState$outIndex)
-      }
-      sendActiveLineStatus(docSessionId,lineId)
-      TRUE
-    }
-    else {
-      FALSE # line id not found
-    }
+  docState <- getDocState(docSessionId) ## this executes a stop, not returns null! FIX ERROR HANDLING
+  if(is.null(docState)) return(FALSE)
+
+  if(is.null(lineId)) {
+    desiredVarList <- getInitVarList()
+    desiredCmdIndex <- INIT_CMD_INDEX
   }
   else {
-    FALSE #document not found
+    lineState <- docState$lines[[lineId]]
+    if(!is.null(lineState)) {
+      desiredVarList <- lineState$outVarList
+      desiredCmdIndex <- lineState$outIndex
+    }
+    else {
+      return(FALSE)
+    }
   }
+  
+  envVersion <- getEnvVersion()
+  if( is.null(envVersion) || 
+      (docSessionId != envVersion$docSessionId) ||
+      (lineId != envVersion$lineId) ||
+      (desiredCmdIndex != envVersion$cmdIndex) ) {
+    clearEnvVersion()
+    ###################################
+    ## temp logc for breakpoint/browser dev
+    envir <- rlang::caller_env()
+    setEnvVars(envir,desiredVarList)
+    ##setEnvVars(rlang::global_env(),desiredVarList)
+    ###############################################
+    setEnvVersion(docSessionId,lineId,desiredCmdIndex)
+  }
+  sendActiveLineStatus(docSessionId,lineId)
+  TRUE
 }
 
 ##======================
