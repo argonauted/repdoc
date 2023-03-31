@@ -119,7 +119,7 @@ initializeDocState <- function(docSessionId) {
   setDocState(docSessionId,docState)
   sendCompletionStatus(docState)
   
-  docState
+  invisible(docState)
 }
 
 
@@ -238,7 +238,7 @@ setDocState <- function(docSessionId,docState) {
   docStates <- rlang::env_get(.sessionStateEnv.,"docStates")
   docStates[[docSessionId]] = docState
   rlang::env_bind(.sessionStateEnv.,docStates=docStates)
-  docState
+  invisible(docState)
 }
 
 ## Gets the doc state for the given session ID
@@ -534,7 +534,7 @@ commandList$add <- function(docState,cmd) {
       docState$firstDirtyIndex <- currentLine
   }
   
-  docState
+  invisible(docState)
 }
 
 commandList$update <- function(docState,cmd) {
@@ -557,7 +557,7 @@ commandList$update <- function(docState,cmd) {
     docState$firstDirtyIndex <- currentLine
   }
 
-  docState
+  invisible(docState)
 }
 
 commandList$delete <- function(docState,cmd) {
@@ -574,7 +574,7 @@ commandList$delete <- function(docState,cmd) {
   ## delete entry
   docState$lines[[cmd$lineId]] = NULL
 
-  docState
+  invisible(docState)
 }
 
 commandList$multi <- function(docState,cmd) {
@@ -594,7 +594,7 @@ commandList$multi <- function(docState,cmd) {
     docState <- cmdFunc(docState,childCmd)
   }
   
-  docState
+  invisible(docState)
 }
 
 processCode <- function(entry,code) {
