@@ -740,7 +740,8 @@ sendValuesMessage <- function(docSessionId,lineObj) {
 ## DUMMY MESSAGE
 sendCellEnvMessage <- function(docSessionId,lineState) {
   ##send data as a JSON object { (var name):(versioned name) ), with the versioned name unboxed 
-  data <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
+  varList <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
+  data <- list(lineId=lineState$lineId,varList=varList)
   sendMessage(type="cellEnv",docSessionId,data)
 }
 
@@ -754,7 +755,9 @@ sendDocEnvMessage <- function(docSessionId,addList,dropNames) {
   if(length(dropNames) > 0) {
     data$drops <- dropNames
   }
-  sendMessage(type="docEnv",docSessionId,data)
+  if(length(data) > 0) {
+    sendMessage(type="docEnv",docSessionId,data)
+  }
 }
 
 ## This sends the status of the document after completion of the evaluation
