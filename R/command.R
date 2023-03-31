@@ -469,7 +469,11 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   kept <- intersect(names(oldLine$inVarList),names(newVarList))
   created <- setdiff(names(newVarList),names(oldLine$inVarList))
   deleted <- setdiff(names(oldLine$inVarList),names(newVarList))
-  updated <- kept[sapply(kept,function(varName) !identical(oldLine$inVarList[[varName]],newVarList[[varName]]))]
+  if(length(kept) > 0) {
+    updated <- kept[sapply(kept,function(varName) !identical(oldLine$inVarList[[varName]],newVarList[[varName]]))]
+  } else {
+    updated <- character(0)
+  }
   unchanged <- setdiff(kept,updated)
   
   ##set the versions for each variable value
