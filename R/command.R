@@ -114,8 +114,17 @@ initializeDocState <- function(docSessionId) {
     docSessionId=docSessionId,
     firstDirtyIndex=1,
     lines=list(),
+    varTable = list(),
     cmdIndex=INIT_CMD_INDEX
   )
+  
+  ## DO I NEED  MESSAGE BEFORE THIS? =========
+  initVarList <- getInitVarList()
+  initVarVersions <- getInitVarVersions()
+  initEnvVarNames <- createVersionedNames(initVarVersions)
+  docState <- updateVarTable(docState,INIT_LINE_ID,initEnvVarNames,character(),initVarList)
+  ##===============================
+  
   setDocState(docSessionId,docState)
   sendCompletionStatus(docState)
   
@@ -277,7 +286,8 @@ evaluateDocState <- function(docState,envir) {
     
     ##new working line
     prevLine <- if (docState$firstDirtyIndex > 1) docState$lines[[docState$firstDirtyIndex - 1]] else NULL
-    modLine <- docState$lines[[docState$firstDirtyIndex]]
+    oldLine <- docState$lines[[docState$firstDirtyIndex]]
+    modLine <- oldLine
 
     if(!is.null(prevLine)) {
       prevLineId <- prevLine$lineId
@@ -371,6 +381,17 @@ evaluateDocState <- function(docState,envir) {
         ##we can only evaluate once per request (for now)
         evaluationInterrupted <- TRUE
       }
+    }
+    
+    
+    ## cell and doc environment variables processing
+    if(modLine$outIndex == currentCmdIndex) {
+      modLine$envVarNames <- createVersionedNames(modLine$outVarVersions)
+      
+      ##cell env var message
+      sendCellEnvMessage(docState$docSessionId,modLine)
+      
+      docState <- updateVarTable(docState,modLine$lineId,modLine$envVarNames,oldLine$envVarNames,modLine$outVarList)
     }
     
     ##update state for new line
@@ -493,6 +514,69 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   newLine$outVarVersions <- newVarVersions
   
   newLine
+}
+
+createVersionedNames <- function(varVersions) {
+  versionedNames <- paste(names(varVersions),varVersions,sep="|")
+  names(versionedNames) <- names(varVersions)
+  versionedNames
+}
+
+updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarList) {
+  cellAddNames <- setdiff(newEnvVarNames,oldEnvVarNames)
+  cellDropNames <- setdiff(oldEnvVarNames,newEnvVarNames)
+  
+  modVarList <- newVarList
+  names(modVarList) <- newEnvVarNames  ##change the names on the var list so we can look up the added values
+  cellAddValues <- modVarList[cellAddNames]
+  
+  stateData <- list(varTable=docState$varTable,adds=character(),drops=character())
+  stateData <- purrr::reduce2(cellAddNames,cellAddValues,processCellAdds,lineId=lineId,.init=stateData)
+  stateData <- purrr::reduce(cellDropNames,processCellDrops,lineId=lineId,.init=stateData)
+  
+  docState$varTable <- stateData$varTable
+  
+  ##send doc environment message - add as list of values, drops as vector of names
+  addList <- modVarList[stateData$adds]
+  names(addList) <- stateData$adds
+  sendDocEnvMessage(docState$docSessionId,addList,stateData$drops)
+  
+  invisible(docState)
+}
+
+processCellAdds <- function(stateData,cellAddName,value,lineId) {
+  varTable <- stateData$varTable
+  adds <- stateData$adds
+  if(hasName(varTable,cellAddName)) {
+    cellList <- varTable[[cellAddName]]$lines
+    if(! (lineId %in% cellList) ) {  #it shouldn't be there
+      varTable[[cellAddName]]$lines <- c(cellList,lineId)
+    }
+  }
+  else {
+    varTable[[cellAddName]] <- list(lines=lineId,value=value)
+    adds <- c(adds,cellAddName)
+  }
+  stateData$varTable <- varTable
+  stateData$adds <- adds
+  invisible(stateData)
+}
+
+processCellDrops <- function(stateData,cellDropName,lineId) {
+  varTable <- stateData$varTable
+  drops <- stateData$drops
+  if(hasName(varTable,cellDropName)) { #it should be here
+    cellList <- varTable[[cellDropName]]$lines
+    newCellList <- cellList[cellList != lineId]
+    varTable[[cellDropName]]$lines <- newCellList
+    if(length(newCellList) == 0) {
+      drops <- c(drops,cellDropName)
+    }
+    
+  }
+  stateData$varTable <- varTable
+  stateData$drops <- drops
+  invisible(stateData)
 }
 
 ##----------------------------
@@ -647,6 +731,26 @@ sendValuesMessage <- function(docSessionId,lineObj) {
       }
     }
   }
+}
+
+## DUMMY MESSAGE
+sendCellEnvMessage <- function(docSessionId,lineState) {
+  ##send data as a JSON object { (var name):(versioned name) ), with the versioned name unboxed 
+  data <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
+  sendMessage(type="cellEnv",docSessionId,data)
+}
+
+## DUMMY MESSAGE
+sendDocEnvMessage <- function(docSessionId,addList,dropNames) {
+  data <- list()
+  if(length(addList) > 0) {
+    ##temp - just send the class name for now!!!
+    data$adds <- lapply(addList,class)
+  }
+  if(length(dropNames) > 0) {
+    data$drops <- dropNames
+  }
+  sendMessage(type="docEnv",docSessionId,data)
 }
 
 ## This sends the status of the document after completion of the evaluation
