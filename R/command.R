@@ -375,6 +375,13 @@ evaluateDocState <- function(docState,envir) {
       if(firstReval) {
         modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
         firstReval <- FALSE
+        
+        ## update the line output
+        modLine <- updateLineDisplayData(modLine,envir)
+        
+        if(!is.null(modLine$displayData)) {
+          sendLineDisplayMessage(docState$docSessionId,modLine)
+        }
       }
       else {
         ##do not evaluate, and stop checking lines
@@ -382,7 +389,6 @@ evaluateDocState <- function(docState,envir) {
         evaluationInterrupted <- TRUE
       }
     }
-    
     
     ## cell and doc environment variables processing
     if(modLine$outIndex == currentCmdIndex) {
@@ -452,11 +458,6 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   
   ##save the final var list
   modLine <- updateLineOutputs(modLine,envir,currentCmdIndex)
-  
-  ## send variable values
-  sendValuesMessage(docSessionId,modLine)
-  
-  modLine
 }
 
 ## This updates the line outputs for a newly evaluated entry
@@ -581,6 +582,56 @@ processCellDrops <- function(stateData,cellDropName,lineId) {
   stateData$varTable <- varTable
   stateData$drops <- drops
   invisible(stateData)
+}
+
+## This function sets the line display data on the line entry
+updateLineDisplayData <- function(lineState,envir) {
+  if(!is.null(lineState$exprs)) {
+    lineDisplayData <- getLineDisplayData(lineState$exprs,envir)
+    if(!is.null(lineDisplayData)) {
+      lineState$displayData <- lineDisplayData
+    }
+  }
+  lineState
+}
+
+ASSIGN_SYMBOLS <- c("<-","<<-","=")
+isAssignment <- function(expr) {
+  if(rlang::is_call(expr)) {
+    callee <- as.character(expr[[1]])
+    callee %in% ASSIGN_SYMBOLS
+  }
+  else FALSE
+}
+
+
+## This function gets the display data for a given expression list.
+## It returns NULL if it finds no data, and a list with the names being the display name
+## and the value being the display value.
+getLineDisplayData <- function(lineExprs,envir) {
+  lineExpr <- lineExprs[[length(lineExprs)]]
+  
+  if(isAssignment(lineExpr)) {
+    targetExpr <- lineExpr[[2]]
+    tryCatch({
+      if(class(targetExpr) == "name") {
+        displayData <- list(get(targetExpr,envir=envir))
+        names(displayData) <- as.character(targetExpr)
+      }
+      else if(rlang::is_call(targetExpr)) {
+        displayData <- list(eval(targetExpr,envir=envir))
+        names(displayData) <- deparse(targetExpr)[[1]]
+      }
+      displayData
+    },
+    error=function(err) {
+      ##no action 
+      NULL
+    })
+  }
+  else {
+    NULL
+  }
 }
 
 ##----------------------------
@@ -724,24 +775,16 @@ sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
   ))
 }
 
-sendValuesMessage <- function(docSessionId,lineObj) {
-  vals <- lineObj$outVarList[c(lineObj$created,lineObj$updated)]
-  ##vals <- vals[!is.function(vals) & !startsWith(names(vals),".")]
-  for(nm in names(vals)) {
-    if(!startsWith(nm,".")) {
-      val <- vals[[nm]]
-      if(!is.function(val)) {
-        print(nm); str(val)
-      }
-    }
-  }
+sendLineDisplayMessage <- function(docSessionId,lineState) {
+  data <- list(lineId=jsonlite::unbox(lineState$lineId),displayData=lineState$displayData)
+  sendMessage(type="lineDisplay",docSessionId,data)
 }
 
 ## DUMMY MESSAGE
 sendCellEnvMessage <- function(docSessionId,lineState) {
   ##send data as a JSON object { (var name):(versioned name) ), with the versioned name unboxed 
   varList <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
-  data <- list(lineId=lineState$lineId,varList=varList)
+  data <- list(lineId=jsonlite::unbox(lineState$lineId),varList=varList)
   sendMessage(type="cellEnv",docSessionId,data)
 }
 
