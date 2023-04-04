@@ -31,7 +31,7 @@ makeResult <- function(jsonList, val, nm, vec.len, list.len) {
 }
 
 
-preserialize <- function(obj, depth=0, options=DEFAULT_OPTIONS) {
+preserialize <- function(obj, depth=1, options=DEFAULT_OPTIONS) {
   if(is.null(obj)) {
     ## this means NULL is ignored (I'd like to keep it)
     NULL
@@ -151,7 +151,7 @@ preserializeUnknownAtomic <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo
 }
 
-preserializeRecursive <- function(obj,depth=0,options=DEFAULT_OPTIONS) {
+preserializeRecursive <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
   if(is.data.frame(obj)) {
     preserializeDataFrame(obj,options)
   }
@@ -198,7 +198,7 @@ getColType <- function(columnObj) {
   }
 }
 
-preserializeList <- function(obj,depth=0,options=DEFAULT_OPTIONS) {
+preserializeList <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
   objInfo <- list()
   objInfo$type <- jsonlite::unbox("list")
   objInfo$len <- jsonlite::unbox(length(obj))
@@ -210,11 +210,11 @@ preserializeList <- function(obj,depth=0,options=DEFAULT_OPTIONS) {
     effObj <- obj
   }
   nms <- names(effObj)
-  if(is.null(nms)) {
-    objInfo$unnamed <- jsonlite::unbox(TRUE)
-  }
-  if(depth < options$max.depth) {
-    objInfo$data <- purrr::map(effObj,preserialize,depth=depth+1,options)
+  objInfo$names <- nms
+  if(depth <= options$max.depth) {
+    data <- purrr::map(effObj,preserialize,depth=depth+1,options)
+    names(data) <- NULL
+    objInfo$data <- data
   }
   else {
     objInfo$depthExceeded <- jsonlite::unbox(TRUE)
@@ -225,11 +225,12 @@ preserializeList <- function(obj,depth=0,options=DEFAULT_OPTIONS) {
   objInfo
 }
 
-preserializeFunction <- function(obj,optinos=DEFAULT_OPTIONS) {
-  stop("implement function!")
+preserializeFunction <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
   objInfo$type <- jsonlite::unbox("function")
-  
+  objInfo$params <- formalArgs(obj)
+  signature <- jsonlite::unbox(deparse(args(obj))[1])
+  objInfo$signature <- signature 
   objInfo
 }
 ##-----------------------------

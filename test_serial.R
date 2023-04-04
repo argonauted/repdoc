@@ -15,7 +15,8 @@ runSerTestA <- function(name,testData) {
     preserialize(testData$data)
   }
   json <- as.character(jsonlite::toJSON(preJson))
-  testthat::test_that(name,testthat::expect_that(json,testthat::equals(removeWhiteSpace(testData$json))))
+  refJson <- as.character(jsonlite::minify(testData$json))
+  testthat::test_that(name,testthat::expect_that(json,testthat::equals(refJson)))
 }
 
 removeWhiteSpace <- function(s) {
@@ -296,23 +297,24 @@ sst$list1 <- {
   json <- '{
     "type":"list",
     "len": 3,
-      "data": {
-      "x": {
+    "names": ["x","y","z"],
+    "data": [
+      {
         "type": "double",
         "len": 1,
         "data": [1]
       },
-      "y":{
+      {
         "type": "double",
         "len": 1,
         "data": [2]
       },
-      "z":{
+      {
         "type": "double",
         "len": 1,
         "data": [3]
       }
-    }
+    ]
   }'
   list(data=data,json=json)
 }
@@ -325,27 +327,29 @@ sst$list2 <- {
   json <- '{
     "type": "list",
     "len": 1,
-    "data": {
-      "x":{
+    "names":["x"],
+    "data": [
+      {
         "type":"list",
         "len": 5,
-        "data":{
-          "a":{
+        "names": ["a","b","c","d","e"],
+        "data":[
+          {
             "type":"double",
             "len": 1,
             "data":[1]
           },
-          "b":{
+          {
             "type":"logical",
             "len": 1,
             "data":[true]
           },
-          "c":{
+          {
             "type":"integer",
             "len": 5,
             "data":[1,2,3,4,5]
           },
-          "d":{
+          {
             "type":"data.frame",
             "dim": [5,3],
             "rowNames":["1","2","3","4","5"],
@@ -353,35 +357,136 @@ sst$list2 <- {
             "colTypes":["integer","double","logical"],
             "data":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]]
           },
-          "e":{
+          {
             "type":"list",
             "len":1,
-            "data":{
-              "a":{
+            "names": ["a"],
+            "data":[
+              {
                 "type":"list",
                 "len":1,
-                "data":{
-                  "a":{
+                "names": ["a"],
+                "data":[
+                   {
                     "type":"list",
                     "len":1,
-                    "data":{
-                      "a":{
+                    "names": ["a"],
+                    "data":[
+                      {
                         "type":"character",
                         "len": 1,
                         "data":["xxx"]
                       }
-                    }
+                    ]
                   }
-                }
+                ]
               }
-            }
+            ]
           }
-        }
+        ]
       }
-    }
+    ]
   }'
   list(data=data,json=json)
 }
+
+sst$`list2 opt` <- {
+  set.seed(1)
+  y <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5))
+  x <- list(a=1,b=TRUE,c=1:5,d=y,e=list(a=list(a=list(a="xxx"))))
+  data <- list(x=x)
+  json <- '{
+    "type": "list",
+    "len": 1,
+    "names":["x"],
+    "data": [
+      {
+        "type":"list",
+        "len": 5,
+        "names": ["a","b","c","d","e"],
+        "data":[
+          {
+            "type":"double",
+            "len": 1,
+            "data":[1]
+          },
+          {
+            "type":"logical",
+            "len": 1,
+            "data":[true]
+          },
+          {
+            "type":"integer",
+            "len": 5,
+            "data":[1,2,3,4,5]
+          },
+          {
+            "type":"data.frame",
+            "dim": [5,3],
+            "rowNames":["1","2","3","4","5"],
+            "colNames":["a","b","c"],
+            "colTypes":["integer","double","logical"],
+            "data":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]]
+          },
+          {
+            "type":"list",
+            "len":1,
+            "names": ["a"],
+            "data":[
+              {
+                "type":"list",
+                "len":1,
+                "names": ["a"],
+                "depthExceeded": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }'
+  options <- createOptions(max.depth=3)
+  list(data=data,json=json,options=options)
+}
+
+sst$`list w/unnamed` <- {
+  set.seed(1)
+  data <- list(a=1,2,3)
+  json <- '{
+    "type":"list",
+    "len": 3,
+    "names": ["a","",""],
+    "data": [
+      {
+        "type": "double",
+        "len": 1,
+        "data": [1]
+      },
+      {
+        "type": "double",
+        "len": 1,
+        "data": [2]
+      },
+      {
+        "type": "double",
+        "len": 1,
+        "data": [3]
+      }
+    ]
+  }'
+  list(data=data,json=json)
+}
+
+sst$fun <- {
+  data <- function(a=5,b,c=list(z=5),...) 34
+  json <- '{
+    "type": "function",
+    "params": ["a","b","c","..."],
+    "signature": "function (a = 5, b, c = list(z = 5), ...) "
+  }'
+  list(data=data,json=json)
+}
+
 
 for(index in seq_along(sst)) {
   name <- names(sst)[index]
