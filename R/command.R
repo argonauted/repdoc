@@ -841,6 +841,6 @@ sendMessage <- function(type,docSessionId,data) {
   body <- list(type=jsonlite::unbox(type),
                session=jsonlite::unbox(docSessionId),
                data=data)
-  print(paste(MESSAGE_HEADER,jsonlite::toJSON(body),MESSAGE_FOOTER,sep=""))
+  print(paste(MESSAGE_HEADER,makeJson(body),MESSAGE_FOOTER,sep=""))
 }
 

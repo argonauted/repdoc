@@ -1,5 +1,7 @@
 DEFAULT_OPTIONS <- list(vec.len=10,mat.len=5,list.len=100,df.len=5,digits=4,max.depth=5)
 
+DEFAULT_SER_DIGITS = 4
+
 createOptions <- function(vec.len=NULL,mat.len=NULL,list.len=NULL,df.len=NULL,digits=NULL,max.depth=NULL) {
   options <- DEFAULT_OPTIONS
   if(!is.null(vec.len)) options$vec.len = vec.len
@@ -11,23 +13,9 @@ createOptions <- function(vec.len=NULL,mat.len=NULL,list.len=NULL,df.len=NULL,di
   options
 }
 
-##value list includes a list of variable values, with the names given by the variable names
-## functions (and some other things) are ignored
-serializeValues <- function(valueList, vec.len=DEFAULT_VECTOR_LENGTH, list.len=DEFAULT_LIST_LENGTH, DEFAULT_DIGITS=4) {
-  as.character(jsonlite::toJSON(purrr::reduce2(valueList,names(valueList),makeResult,.init=list(),vec.len=vec.len,list.len=list.len),digits=digits))
-}
 
-makeResult <- function(jsonList, val, nm, vec.len, list.len) {
-  if(startsWith(nm,".")) {
-    ## ignore names starting with a period
-    return(NULL)
-  }
-  
-  modVal <- serialize(val,vec.len=vec.len,list.len=list.len)
-  if(!is.null(modVal)) {
-    jsonList[[nm]] <- modVal
-  }
-  jsonList
+makeJson <- function(preJson) {
+  jsonlite::toJSON(preJson,digits=DEFAULT_SER_DIGITS,null="null")
 }
 
 
