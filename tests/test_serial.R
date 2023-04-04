@@ -1,4 +1,4 @@
-source("serial.R")
+source("./R/serial.R")
 
 ##Serialization test Type A
 ## In this test, we pass an object and we call the preserialize function, which 

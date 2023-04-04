@@ -1,4 +1,5 @@
 source("./R/utils.R")
+source("./R/serial.R")
 
 ##Constants
 
@@ -376,10 +377,10 @@ evaluateDocState <- function(docState,envir) {
         modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
         firstReval <- FALSE
         
-        ## update the line output
-        modLine <- updateLineDisplayData(modLine,envir)
-        
-        if(!is.null(modLine$displayData)) {
+        ## find the line output
+        lineDisplayData <- getLineDisplayData(modLine,envir)
+        if(!is.null(lineDisplayData)) {
+          modLine$displayData <- lineDisplayData
           sendLineDisplayMessage(docState$docSessionId,modLine)
         }
       }
@@ -584,17 +585,6 @@ processCellDrops <- function(stateData,cellDropName,lineId) {
   invisible(stateData)
 }
 
-## This function sets the line display data on the line entry
-updateLineDisplayData <- function(lineState,envir) {
-  if(!is.null(lineState$exprs)) {
-    lineDisplayData <- getLineDisplayData(lineState$exprs,envir)
-    if(!is.null(lineDisplayData)) {
-      lineState$displayData <- lineDisplayData
-    }
-  }
-  lineState
-}
-
 ASSIGN_SYMBOLS <- c("<-","<<-","=")
 isAssignment <- function(expr) {
   if(rlang::is_call(expr)) {
@@ -609,18 +599,19 @@ isAssignment <- function(expr) {
 ## It returns NULL if it finds no data, and a list with the names being the display name
 ## and the value being the display value.
 getLineDisplayData <- function(lineExprs,envir) {
+  ##only read from the last expression in the line/cell
   lineExpr <- lineExprs[[length(lineExprs)]]
   
   if(isAssignment(lineExpr)) {
     targetExpr <- lineExpr[[2]]
     tryCatch({
+      displayData <- list()
       if(class(targetExpr) == "name") {
-        displayData <- list(get(targetExpr,envir=envir))
-        names(displayData) <- as.character(targetExpr)
+        displayData$name <- as.character(targetExpr)
       }
       else if(rlang::is_call(targetExpr)) {
-        displayData <- list(eval(targetExpr,envir=envir))
-        names(displayData) <- deparse(targetExpr)[[1]]
+        displayData$label <- deparse(targetExpr)[[1]]
+        displayData$value <- list(eval(targetExpr,envir=envir))
       }
       displayData
     },
@@ -776,11 +767,21 @@ sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
 }
 
 sendLineDisplayMessage <- function(docSessionId,lineState) {
-  data <- list(lineId=jsonlite::unbox(lineState$lineId),displayData=lineState$displayData)
-  sendMessage(type="lineDisplay",docSessionId,data)
+  if(!is.null(lineState$lineDisplay)) {
+    data <- list(lineId=jsonlite::unbox(lineState$lineId))
+    entry <- list()
+    if(!is.null(lineState$lineDisplay$name)) {
+      entry$name <- lineState$lineDisplay$name
+    }
+    else if(!is.null(lineState$lineDisplay$value)) {
+      entry$label <- lineState$lineDisplay$label
+      entry$value <- preserialize(lineState$lineDisplay$value)
+    }
+    data$valList <- list(entry) ##unamed list to make json array. For now there is just one entry. We may allow more later
+    sendMessage(type="lineDisplay",docSessionId,data)
+  }
 }
 
-## DUMMY MESSAGE
 sendCellEnvMessage <- function(docSessionId,lineState) {
   ##send data as a JSON object { (var name):(versioned name) ), with the versioned name unboxed 
   varList <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
@@ -788,12 +789,10 @@ sendCellEnvMessage <- function(docSessionId,lineState) {
   sendMessage(type="cellEnv",docSessionId,data)
 }
 
-## DUMMY MESSAGE
 sendDocEnvMessage <- function(docSessionId,addList,dropNames) {
   data <- list()
   if(length(addList) > 0) {
-    ##temp - just send the class name for now!!!
-    data$adds <- lapply(addList,class)
+    data$adds <- lapply(addList,preserialize)
   }
   if(length(dropNames) > 0) {
     data$drops <- dropNames
