@@ -229,8 +229,7 @@ preserializeFunction <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
   objInfo$type <- jsonlite::unbox("function")
   objInfo$params <- formalArgs(obj)
-  signature <- jsonlite::unbox(deparse(args(obj))[1])
-  objInfo$signature <- signature 
+  objInfo$signature <- jsonlite::unbox(deparse(args(obj))[1])
   objInfo
 }
 ##-----------------------------
