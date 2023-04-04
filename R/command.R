@@ -599,8 +599,11 @@ isAssignment <- function(expr) {
 ## It returns NULL if it finds no data, and a list with the names being the display name
 ## and the value being the display value.
 getLineDisplayData <- function(lineState,envir) {
+  exprCount <- length(lineState$exprs)
+  if(exprCount == 0) return(NULL)
+  
   ##only read from the last expression in the line/cell
-  lineExpr <- lineState$exprs[[length(lineState$exprs)]]
+  lineExpr <- lineState$exprs[[exprCount]]
   
   if(isAssignment(lineExpr)) {
     targetExpr <- lineExpr[[2]]
