@@ -1,7 +1,25 @@
 source("serial.R")
 
-runSerTest <- function(name,testData) {
-  testthat::test_that(name,testthat::expect_that(serializeValues(testData$data),testthat::equals(testData$json)))
+##Serialization test Type A
+## In this test, we pass an object and we call the preserialize function, which 
+## returns an R object suitable for serialization with the a call to jsonlite::toJSON
+## The testData passed in should be:
+## - data - the object to be serialized
+## - json - the json that results from calling jsonlite::toJSON
+## - options - an options object to pass in to the serialization function. This is optional and defaults to the standard options.
+runSerTestA <- function(name,testData) {
+  preJson <- if(!is.null(testData$options)) {
+    preserialize(testData$data,options=testData$options)
+  }
+  else {
+    preserialize(testData$data)
+  }
+  json <- as.character(jsonlite::toJSON(preJson))
+  testthat::test_that(name,testthat::expect_that(json,testthat::equals(removeWhiteSpace(testData$json))))
+}
+
+removeWhiteSpace <- function(s) {
+  gsub("\\s+","",s)
 }
 
 ##===========================
@@ -13,114 +31,362 @@ runSerTest <- function(name,testData) {
 ##===========================
 sst <- list()
 
+Xsst <- list()
+
 ##integer vector, 1 element
-sst$IntVector1 <- {
-  x <- 1L
-  varList <- list(x=x)
-  json <- '{"x":{"type":"vector","atom":"integer","data":[1]}}'
-  list(data=varList,json=json)
+sst$`Int Vector 1` <- {
+  data <- 1L
+  json <- '{
+    "type":"integer",
+    "len":1,
+    "data":[1]
+  }'
+  list(data=data,json=json)
 }
 
 ## integer vector
 ##also tests names
-sst$IntVector2 <- {
-  x <- 1:5
-  names(x) <- c("one", "two", "three", "four", "five")
-  varList <- list(x=x)
-  json <- '{"x":{"type":"vector","atom":"integer","data":[1,2,3,4,5],"attributes":{"names":["one","two","three","four","five"]}}}'
-  list(data=varList,json=json)
+sst$`Int Vector 2` <- {
+  data <- 1:5
+  names(data) <- c("one", "two", "three", "four", "five")
+  json <- '{
+    "type":"integer",
+    "len":5,
+    "data":[1,2,3,4,5],
+    "names":["one","two","three","four","five"]
+  }'
+  list(data=data,json=json)
 }
 
-sst$boolVector <- {
-  x <- c(TRUE,FALSE)
-  names(x) <- c("true","false")
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"vector\",\"atom\":\"logical\",\"data\":[true,false],\"attributes\":{\"names\":[\"true\",\"false\"]}}}"
-  list(data=varList,json=json)
+sst$`Int Vector with options` <- {
+  data <- 1:5
+  names(data) <- c("one", "two", "three", "four", "five")
+  json <- '{
+    "type":"integer",
+    "len":5,
+    "short": true,
+    "data":[1,2,3],
+    "names":["one","two","three"]
+  }'
+  options <- createOptions(vec.len=3)
+  list(data=data,json=json,options=options)
 }
 
-sst$numericVector <- {
+sst$`bool vector` <- {
+  data <- c(TRUE,FALSE)
+  names(data) <- c("true","false")
+  json <- '{
+    "type":"logical",
+    "len": 2,
+    "data":[true,false],
+    "names":["true","false"]
+  }'
+  list(data=data,json=json)
+}
+
+sst$`numeric vector` <- {
   set.seed(1)
-  x <- rnorm(10)
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"vector\",\"atom\":\"double\",\"data\":[-0.6265,0.1836,-0.8356,1.5953,0.3295,-0.8205,0.4874,0.7383,0.5758,-0.3054]}}"
-  list(data=varList,json=json)
+  data <- rnorm(20)
+  json <- '{
+    "type":"double",
+    "len": 20,
+    "short": true,
+    "data":[-0.6265,0.1836,-0.8356,1.5953,0.3295,-0.8205,0.4874,0.7383,0.5758,-0.3054]
+  }'
+  list(data=data,json=json)
 }
 
 sst$charVector <- {
-  x <- "hello"
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"vector\",\"atom\":\"character\",\"data\":[\"hello\"]}}"
-  list(data=varList,json=json)
+  data <- "hello"
+  json <- '{
+    "type":"character",
+    "len": 1,
+    "data":["hello"]
+  }'
+  list(data=data,json=json)
 }
 
 sst$complexVector <- {
-  x <- 4 + 5i
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"vector\",\"atom\":\"complex\",\"data\":[\"4+5i\"]}}"
-  list(data=varList,json=json)
+  data <- 4 + 5i
+  json <- '{
+    "type":"complex",
+    "len": 1,
+    "data":["4+5i"]
+  }'
+  list(data=data,json=json)
 }
 
 sst$matrix <- {
-  x <- matrix(as.numeric(1:8),nrow=2)
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"matrix\",\"atom\":\"double\",\"data\":[[1,3,5,7],[2,4,6,8]],\"attributes\":{\"dim\":[2,4]}}}"
-  list(data=varList,json=json)
+  data <- matrix(as.numeric(1:8),nrow=2)
+  json <- '{
+    "type":"matrix",
+    "atom":"double",
+    "dim":[2,4],
+    "data":[[1,3,5,7],[2,4,6,8]]
+  }'
+  list(data=data,json=json)
+}
+
+sst$`matrix options` <- {
+  data <- matrix(as.numeric(1:8),nrow=2)
+  json <- '{
+    "type":"matrix",
+    "atom":"double",
+    "dim":[2,4],
+    "short": true,
+    "data":[[1,3,5],[2,4,6]]
+  }'
+  options <- createOptions(mat.len=3)
+  list(data=data,json=json,options=options)
 }
 
 sst$matrix2 <- {
-  x <- matrix(1:8,nrow=2)
-  dimnames(x) <- list(x=c("a","b"),y=c("x","y","z","q"))
-  varList <- list(x=x)
+  data <- matrix(1:8,nrow=2)
+  dimnames(data) <- list(x=c("a","b"),y=c("x","y","z","q"))
+  json <- '{
+    "type":"matrix",
+    "atom":"integer",
+    "dim":[2,4],
+    "data":[[1,3,5,7],[2,4,6,8]],
+    "dimNames": [["a","b"],["x","y","z","q"]],
+    "dimLabels": ["x","y"]
+  }'
+  list(data=data,json=json)
+}
+
+sst$`matrix2 opts` <- {
+  data <- matrix(1:8,nrow=2)
+  dimnames(data) <- list(x=c("a","b"),y=c("x","y","z","q"))
+  json <- '{
+    "type":"matrix",
+    "atom":"integer",
+    "dim":[2,4],
+    "short": true,
+    "data":[[1,3,5],[2,4,6]],
+    "dimNames": [["a","b"],["x","y","z"]],
+    "dimLabels": ["x","y"]
+  }'
+  options <- createOptions(mat.len=3)
+  list(data=data,json=json,options=options)
 }
 
 sst$array <- {
-  x <- array(as.numeric(1:24),dim=c(2,3,4))
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"array\",\"atom\":\"double\",\"data\":[[[1,7,13,19],[3,9,15,21],[5,11,17,23]],[[2,8,14,20],[4,10,16,22],[6,12,18,24]]],\"attributes\":{\"dim\":[2,3,4]}}}"
-  list(data=varList,json=json)
+  data <- array(as.numeric(1:24),dim=c(2,3,4))
+  json <- '{
+    "type":"array",
+    "atom":"double",
+    "dim":[2,3,4]
+  }'
+  list(data=data,json=json)
 }
 
+sst$factor1 <- {
+  data <- factor(c(1,5,2,34,1,5,2,3,4,2,3,4))
+  json <- '{
+    "type":"factor",
+    "ordered":false,
+    "len": 12,
+    "short": true,
+    "data":["1","5","2","34","1","5","2","3","4","2"],
+    "levels":["1","2","3","4","5","34"]
+  }'
+  list(data=data,json=json)
+}
+
+sst$factor2 <- {
+  data <- ordered(c(1,2,4,2,4,4))
+  json <- '{
+    "type":"factor",
+    "ordered":true,
+    "len": 6,
+    "data":["1","2","4","2","4","4"],
+    "levels":["1","2","4"]
+  }'
+  list(data=data,json=json)
+}
+
+sst$factor3 <- {
+  data <- factor(c("one","two","one","two","five"),levels=c("one", "two", "three", "four", "five"))
+  json <- '{
+    "type":"factor",
+    "ordered":false,
+    "len": 5,
+    "data":["one","two","one","two","five"],
+    "levels":["one","two","three","four","five"]
+  }'
+  list(data=data,json=json)
+}
+
+sst$`factor3 options` <- {
+  data <- factor(c("one","two","one","two","five"),levels=c("one", "two", "three", "four", "five"))
+  json <- '{
+    "type":"factor",
+    "ordered":false,
+    "len": 5,
+    "short": true,
+    "data":["one","two","one"],
+    "levelsShort": true,
+    "levels":["one","two","three"]
+  }'
+  options <- createOptions(vec.len=3)
+  list(data=data,json=json,options=options)
+}
 sst$dataframe <- {
   set.seed(1)
-  x <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5))
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"data.frame\",\"data\":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]],\"attributes\":{\"names\":[\"a\",\"b\",\"c\"],\"class\":[\"data.frame\"],\"row.names\":[1,2,3,4,5]}}}"
-  list(data=varList,json=json)
+  data <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5),d=factor(c("one", "two", "one", "two", "five")))
+  json <- '{
+    "type":"data.frame",
+    "dim":[5,4],
+    "rowNames":["1","2","3","4","5"],
+    "colNames":["a","b","c","d"],
+    "colTypes":["integer","double","logical","factor"],
+    "data":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true],["one","two","one","two","five"]]
+  }'
+  list(data=data,json=json)
+}
+sst$`dataframe opt 1` <- {
+  set.seed(1)
+  data <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5),d=factor(c("one", "two", "one", "two", "five")))
+  json <- '{
+    "type":"data.frame",
+    "dim":[5,4],
+    "rowShort": true,
+    "rowNames":["1","2","3"],
+    "colNames":["a","b","c","d"],
+    "colTypes":["integer","double","logical","factor"],
+    "data":[[1,2,3],[0.2655,0.3721,0.5729],[true,true,true],["one","two","one"]]
+  }'
+  options <- createOptions(df.len=3)
+  list(data=data,json=json,options=options)
+}
+sst$`dataframe opt 2` <- {
+  set.seed(1)
+  data <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5),d=factor(c("one", "two", "one", "two", "five")))
+  json <- '{
+    "type":"data.frame",
+    "dim":[5,4],
+    "rowShort": true,
+    "colShort": true,
+    "rowNames":["1","2","3"],
+    "colNames":["a","b","c"],
+    "colTypes":["integer","double","logical"],
+    "data":[[1,2,3],[0.2655,0.3721,0.5729],[true,true,true]]
+  }'
+  options <- createOptions(df.len=3,list.len=3)
+  list(data=data,json=json,options=options)
+}
+sst$datatable <- {
+  set.seed(1)
+  data <- data.table::data.table(a=1:5,b=runif(5),c=rep(TRUE,5),d=factor(c("one", "two", "one", "two", "five")))
+  json <- '{
+    "type":"data.frame",
+    "dim":[5,4],
+    "rowNames":["1","2","3","4","5"],
+    "colNames":["a","b","c","d"],
+    "colTypes":["integer","double","logical","factor"],
+    "data":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true],["one","two","one","two","five"]],
+    "class": "data.table"
+  }'
+  list(data=data,json=json)
 }
 
-sst$list <- {
+sst$list1 <- {
+  set.seed(1)
+  data <- list(x=1,y=2,z=3)
+  json <- '{
+    "type":"list",
+    "len": 3,
+      "data": {
+      "x": {
+        "type": "double",
+        "len": 1,
+        "data": [1]
+      },
+      "y":{
+        "type": "double",
+        "len": 1,
+        "data": [2]
+      },
+      "z":{
+        "type": "double",
+        "len": 1,
+        "data": [3]
+      }
+    }
+  }'
+  list(data=data,json=json)
+}
+
+sst$list2 <- {
   set.seed(1)
   y <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5))
   x <- list(a=1,b=TRUE,c=1:5,d=y,e=list(a=list(a=list(a="xxx"))))
-  varList <- list(x=x)
-  json <- "{\"x\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"vector\",\"atom\":\"double\",\"data\":[1]},\"b\":{\"type\":\"vector\",\"atom\":\"logical\",\"data\":[true]},\"c\":{\"type\":\"vector\",\"atom\":\"integer\",\"data\":[1,2,3,4,5]},\"d\":{\"type\":\"data.frame\",\"data\":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]],\"attributes\":{\"names\":[\"a\",\"b\",\"c\"],\"class\":[\"data.frame\"],\"row.names\":[1,2,3,4,5]}},\"e\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"vector\",\"atom\":\"character\",\"data\":[\"xxx\"]}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}}}"
-  list(data=varList,json=json)
-}
-
-sst$factor <- {
-  f1 <- factor(c(1,5,2,34,1,5,2,3,4,2,3,4))
-  f2 <- ordered(c(1,2,4,2,4,4))
-  f3 <- factor(c("one","two","one","two","five"),levels=c("one", "two", "three", "four", "five"))
-  varList <- list(f1=f1,f2=f2,f3=f3)
-  json <- "{\"f1\":{\"type\":\"factor\",\"ordered\":false,\"atom\":\"integer\",\"data\":[\"1\",\"5\",\"2\",\"34\",\"1\",\"5\",\"2\",\"3\",\"4\",\"2\",\"3\",\"4\"],\"attributes\":{\"levels\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"34\"],\"class\":[\"factor\"]}},\"f2\":{\"type\":\"factor\",\"ordered\":true,\"atom\":\"integer\",\"data\":[\"1\",\"2\",\"4\",\"2\",\"4\",\"4\"],\"attributes\":{\"levels\":[\"1\",\"2\",\"4\"],\"class\":[\"ordered\",\"factor\"]}},\"f3\":{\"type\":\"factor\",\"ordered\":false,\"atom\":\"integer\",\"data\":[\"one\",\"two\",\"one\",\"two\",\"five\"],\"attributes\":{\"levels\":[\"one\",\"two\",\"three\",\"four\",\"five\"],\"class\":[\"factor\"]}}}"
-  list(data=varList,json=json)
-}
-
-sst$multi <- {
-  set.seed(1)
-  z <- 4
-  y <- data.frame(a=1:5,b=runif(5),c=rep(TRUE,5))
-  x <- list(a=1,b=TRUE,c=1:5,d=y,e=list(a=list(a=list(a="xxx"))))
-  varList <- list(x=x,y=y,z=z)
-  json <- "{\"x\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"vector\",\"atom\":\"double\",\"data\":[1]},\"b\":{\"type\":\"vector\",\"atom\":\"logical\",\"data\":[true]},\"c\":{\"type\":\"vector\",\"atom\":\"integer\",\"data\":[1,2,3,4,5]},\"d\":{\"type\":\"data.frame\",\"data\":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]],\"attributes\":{\"names\":[\"a\",\"b\",\"c\"],\"class\":[\"data.frame\"],\"row.names\":[1,2,3,4,5]}},\"e\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"list\",\"data\":{\"a\":{\"type\":\"vector\",\"atom\":\"character\",\"data\":[\"xxx\"]}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\"]}}},\"attributes\":{\"names\":[\"a\",\"b\",\"c\",\"d\",\"e\"]}},\"y\":{\"type\":\"data.frame\",\"data\":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]],\"attributes\":{\"names\":[\"a\",\"b\",\"c\"],\"class\":[\"data.frame\"],\"row.names\":[1,2,3,4,5]}},\"z\":{\"type\":\"vector\",\"atom\":\"double\",\"data\":[4]}}"
-  list(data=varList,json=json)
+  data <- list(x=x)
+  json <- '{
+    "type": "list",
+    "len": 1,
+    "data": {
+      "x":{
+        "type":"list",
+        "len": 5,
+        "data":{
+          "a":{
+            "type":"double",
+            "len": 1,
+            "data":[1]
+          },
+          "b":{
+            "type":"logical",
+            "len": 1,
+            "data":[true]
+          },
+          "c":{
+            "type":"integer",
+            "len": 5,
+            "data":[1,2,3,4,5]
+          },
+          "d":{
+            "type":"data.frame",
+            "dim": [5,3],
+            "rowNames":["1","2","3","4","5"],
+            "colNames":["a","b","c"],
+            "colTypes":["integer","double","logical"],
+            "data":[[1,2,3,4,5],[0.2655,0.3721,0.5729,0.9082,0.2017],[true,true,true,true,true]]
+          },
+          "e":{
+            "type":"list",
+            "len":1,
+            "data":{
+              "a":{
+                "type":"list",
+                "len":1,
+                "data":{
+                  "a":{
+                    "type":"list",
+                    "len":1,
+                    "data":{
+                      "a":{
+                        "type":"character",
+                        "len": 1,
+                        "data":["xxx"]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }'
+  list(data=data,json=json)
 }
 
 for(index in seq_along(sst)) {
   name <- names(sst)[index]
   testData <- sst[[index]]
-  runSerTest(name,testData)
+  runSerTestA(name,testData)
 }
 
 
