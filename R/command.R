@@ -598,9 +598,9 @@ isAssignment <- function(expr) {
 ## This function gets the display data for a given expression list.
 ## It returns NULL if it finds no data, and a list with the names being the display name
 ## and the value being the display value.
-getLineDisplayData <- function(lineExprs,envir) {
+getLineDisplayData <- function(lineState,envir) {
   ##only read from the last expression in the line/cell
-  lineExpr <- lineExprs[[length(lineExprs)]]
+  lineExpr <- lineState$exprs[[length(lineState$exprs)]]
   
   if(isAssignment(lineExpr)) {
     targetExpr <- lineExpr[[2]]
@@ -767,15 +767,16 @@ sendEvalMessage <- function(docSessionId,lineId,cmdIndex) {
 }
 
 sendLineDisplayMessage <- function(docSessionId,lineState) {
-  if(!is.null(lineState$lineDisplay)) {
+  if(!is.null(lineState$displayData)) {
+    displayData <- lineState$displayData
     data <- list(lineId=jsonlite::unbox(lineState$lineId))
     entry <- list()
-    if(!is.null(lineState$lineDisplay$name)) {
-      entry$name <- lineState$lineDisplay$name
+    if(!is.null(displayData$name)) {
+      entry$name <- displayData$name
     }
-    else if(!is.null(lineState$lineDisplay$value)) {
-      entry$label <- lineState$lineDisplay$label
-      entry$value <- preserialize(lineState$lineDisplay$value)
+    else if(!is.null(displayData$value)) {
+      entry$label <- displayData$label
+      entry$value <- preserialize(displayData$value)
     }
     data$valList <- list(entry) ##unamed list to make json array. For now there is just one entry. We may allow more later
     sendMessage(type="lineDisplay",docSessionId,data)
