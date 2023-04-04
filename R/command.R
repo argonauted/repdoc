@@ -614,7 +614,7 @@ getLineDisplayData <- function(lineState,envir) {
       }
       else if(rlang::is_call(targetExpr)) {
         displayData$label <- deparse(targetExpr)[[1]]
-        displayData$value <- list(eval(targetExpr,envir=envir))
+        displayData$value <- eval(targetExpr,envir=envir)
       }
       displayData
     },
@@ -775,10 +775,10 @@ sendLineDisplayMessage <- function(docSessionId,lineState) {
     data <- list(lineId=jsonlite::unbox(lineState$lineId))
     entry <- list()
     if(!is.null(displayData$name)) {
-      entry$name <- displayData$name
+      entry$name <- jsonlite::unbox(displayData$name)
     }
     else if(!is.null(displayData$value)) {
-      entry$label <- displayData$label
+      entry$label <- jsonlite::unbox(displayData$label)
       entry$value <- preserialize(displayData$value)
     }
     data$valList <- list(entry) ##unamed list to make json array. For now there is just one entry. We may allow more later
