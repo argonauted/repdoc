@@ -78,7 +78,7 @@ evaluate <- function(docSessionId) {
   
   ##we need to ensure these both happen or fail###########
   ##send cmd complete msg
-  sendCompletionStatus(docState)
+  sendDocStatus(docState)
   ##save the state
   setDocState(docSessionId,docState)
   ########################################################
@@ -127,7 +127,7 @@ initializeDocState <- function(docSessionId) {
   ##===============================
   
   setDocState(docSessionId,docState)
-  sendCompletionStatus(docState)
+  sendDocStatus(docState)
   
   invisible(docState)
 }
@@ -171,7 +171,7 @@ executeCommand <- function(docSessionId,cmd,envir=NULL) {
 
   ##we need to ensure these both happen or fail###########
   ##send cmd complete msg
-  sendCompletionStatus(docState)
+  sendDocStatus(docState)
   ##save the state
   setDocState(docSessionId,docState)
   ########################################################
@@ -404,6 +404,9 @@ evaluateDocState <- function(docState,envir) {
     ##update state for new line
     docState$lines[[docState$firstDirtyIndex]] <- modLine
     if(!evaluationInterrupted) {
+      
+      sendCellStatusMessage(docState,modLine)
+      
       docState$firstDirtyIndex <- docState$firstDirtyIndex + 1
     }
   }
@@ -545,7 +548,7 @@ updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarL
   ##send doc environment message - add as list of values, drops as vector of names
   addList <- modVarList[stateData$adds]
   names(addList) <- stateData$adds
-  sendDocEnvMessage(docState$docSessionId,addList,stateData$drops)
+  sendDocEnvMessage(docState,lineId,addList,stateData$drops)
   
   invisible(docState)
 }
@@ -787,30 +790,35 @@ sendLineDisplayMessage <- function(docSessionId,lineState) {
 }
 
 sendCellEnvMessage <- function(docSessionId,lineState) {
-  ##send data as a JSON object { (var name):(versioned name) ), with the versioned name unboxed 
   varList <- lapply(as.list(lineState$envVarNames),jsonlite::unbox)
   data <- list(lineId=jsonlite::unbox(lineState$lineId),varList=varList)
   sendMessage(type="cellEnv",docSessionId,data)
 }
 
-sendDocEnvMessage <- function(docSessionId,addList,dropNames) {
-  data <- list()
+sendDocEnvMessage <- function(docState,lineId,addList,dropNames) {
+  changes <- list()
   if(length(addList) > 0) {
-    data$adds <- lapply(addList,preserialize)
+    changes$adds <- lapply(addList,preserialize)
   }
   if(length(dropNames) > 0) {
-    data$drops <- dropNames
+    changes$drops <- dropNames
   }
-  if(length(data) > 0) {
-    sendMessage(type="docEnv",docSessionId,data)
+  if(length(changes) > 0) {
+    data <- list(lineId=jsonlite::unbox(lineId),cmdIndex=jsonlite::unbox(docState$cmdIndex),changes=changes)
+    sendMessage(type="docEnv",docState$docSessionId,data)
   }
+}
+
+sendCellStatusMessage <- function(docState,lineState) {
+  data <- list(lineId=jsonlite::unbox(lineState$lineId),cmdIndex=jsonlite::unbox(docState$cmdIndex))
+  sendMessage(type="cellStatus",docState$docSessionId,data)
 }
 
 ## This sends the status of the document after completion of the evaluation
 ## It includes:
 ## - evalComplete - if false, further evaluation is necessary
 ## - nextIndex - included if evaluation necessary. The line index that next needs to be evaluated
-sendCompletionStatus <- function(docState) {
+sendDocStatus <- function(docState) {
   evalComplete <- docState$firstDirtyIndex > length(docState$lines)
   data <- list(
     evalComplete=jsonlite::unbox(evalComplete),
