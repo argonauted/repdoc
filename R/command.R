@@ -392,7 +392,7 @@ evaluateDocState <- function(docState,envir) {
     }
     
     ## cell and doc environment variables processing
-    if(modLine$outIndex == currentCmdIndex) {
+    if(!is.null(modLine$outIndex) && modLine$outIndex == currentCmdIndex) {
       modLine$envVarNames <- createVersionedNames(modLine$outVarVersions)
       
       ##cell env var message
