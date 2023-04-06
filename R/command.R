@@ -304,8 +304,11 @@ evaluateDocState <- function(docState,envir) {
       inVarVersions <- getInitVarVersions()
     }
     
+    #some processing flags
     reval <- FALSE
     nonCodeInputsChanged <- FALSE
+    doEnvironmentVarUpdate <- FALSE
+    doLineDisplayUpdate <- FALSE
     
     ##------------------------
     ## Process an input change
@@ -367,6 +370,8 @@ evaluateDocState <- function(docState,envir) {
       modLine$outVarList <- outVarList
       modLine$outVarVersions <- outVarVersions
       modLine$outIndex <- currentCmdIndex
+      
+      doEnvironmentVarUpdate <- TRUE
     }
 
     ##------------------------
@@ -377,12 +382,8 @@ evaluateDocState <- function(docState,envir) {
         modLine <- evalCode(docState$docSessionId,modLine,currentCmdIndex,envir)
         firstReval <- FALSE
         
-        ## find the line output
-        lineDisplayData <- getLineDisplayData(modLine,envir)
-        if(!is.null(lineDisplayData)) {
-          modLine$displayData <- lineDisplayData
-          sendLineDisplayMessage(docState$docSessionId,modLine)
-        }
+        doEnvironmentVarUpdate <- TRUE
+        doLineDisplayUpdate <- TRUE # note: we need doEnvironmentVarUpdate == TRUE to do this
       }
       else {
         ##do not evaluate, and stop checking lines
@@ -392,13 +393,27 @@ evaluateDocState <- function(docState,envir) {
     }
     
     ## cell and doc environment variables processing
-    if(!is.null(modLine$outIndex) && modLine$outIndex == currentCmdIndex) {
+    if(doEnvironmentVarUpdate) {
+      ##get the line env values
       modLine$envVarNames <- createVersionedNames(modLine$outVarVersions)
+      
+      ##note - updateVarTable has side effect of sending the update table message
+      ##send var table update first - so receivers of other messages can use it for decoding
+      docState <- updateVarTable(docState,modLine$lineId,modLine$envVarNames,oldLine$envVarNames,modLine$outVarList)
       
       ##cell env var message
       sendCellEnvMessage(docState$docSessionId,modLine)
       
-      docState <- updateVarTable(docState,modLine$lineId,modLine$envVarNames,oldLine$envVarNames,modLine$outVarList)
+      ## find the line output and send the message
+      ## this requires the envVarNames to be set to calculate the message
+      ## and the recipient required the var table to unpack it.
+      if(doLineDisplayUpdate) {
+        lineDisplayData <- getLineDisplayData(modLine,envir)
+        if(!is.null(lineDisplayData)) {
+          modLine$displayData <- lineDisplayData
+          sendLineDisplayMessage(docState$docSessionId,modLine)
+        }
+      }
     }
     
     ##update state for new line
@@ -531,6 +546,9 @@ createVersionedNames <- function(varVersions) {
   versionedNames
 }
 
+## This updates the variable table in the state
+## It also has the side effect of sending the var table udpate message, since we can
+## calculate the deltas here
 updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarList) {
   cellAddNames <- setdiff(newEnvVarNames,oldEnvVarNames)
   cellDropNames <- setdiff(oldEnvVarNames,newEnvVarNames)
@@ -613,7 +631,15 @@ getLineDisplayData <- function(lineState,envir) {
     tryCatch({
       displayData <- list()
       if(class(targetExpr) == "name") {
-        displayData$name <- as.character(targetExpr)
+        name <- as.character(targetExpr)
+        lookupKey <- lineState$envVarNames[name]
+        if(!is.null(lookupKey)) { ##it should find this name
+          displayData$label <- name
+          displayData$lookupKey <- lookupKey
+        }
+        else {
+          displayData <- NULL
+        }
       }
       else if(rlang::is_call(targetExpr)) {
         displayData$label <- deparse(targetExpr)[[1]]
@@ -777,11 +803,11 @@ sendLineDisplayMessage <- function(docSessionId,lineState) {
     displayData <- lineState$displayData
     data <- list(lineId=jsonlite::unbox(lineState$lineId))
     entry <- list()
-    if(!is.null(displayData$name)) {
-      entry$name <- jsonlite::unbox(displayData$name)
+    entry$label <- jsonlite::unbox(displayData$label)
+    if(!is.null(displayData$lookupKey)) {
+      entry$lookupKey <- jsonlite::unbox(displayData$lookupKey)
     }
     else if(!is.null(displayData$value)) {
-      entry$label <- jsonlite::unbox(displayData$label)
       entry$value <- preserialize(displayData$value)
     }
     data$valList <- list(entry) ##unamed list to make json array. For now there is just one entry. We may allow more later
