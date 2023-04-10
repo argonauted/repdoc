@@ -136,6 +136,7 @@ preserializeFactor <- function(obj,options=DEFAULT_OPTIONS) {
 preserializeUnknownAtomic <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
   objInfo$type <- jsonlite::unbox("Atomic Type")
+  objInfo$class <- jsonlite::unbox(class(obj)[1])
   objInfo
 }
 
@@ -143,8 +144,11 @@ preserializeRecursive <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
   if(is.data.frame(obj)) {
     preserializeDataFrame(obj,options)
   }
-  else {
+  else if(is.list(obj)) {
     preserializeList(obj,depth,options)
+  }
+  else {
+    preserializeUnknownRecursive(obj,options)
   }
 }
 
@@ -213,6 +217,13 @@ preserializeList <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
   objInfo
 }
 
+preserializeUnknownRecursive <- function(obj,options=DEFAULT_OPTIONS) {
+  objInfo <- list()
+  objInfo$type <- jsonlite::unbox("Recursive Type")
+  objInfo$class <- jsonlite::unbox(class(obj)[1])
+  objInfo
+}
+
 preserializeFunction <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
   objInfo$type <- jsonlite::unbox("function")
@@ -220,6 +231,7 @@ preserializeFunction <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo$signature <- jsonlite::unbox(deparse(args(obj))[1])
   objInfo
 }
+
 ##-----------------------------
 ## These functions returned truncated versions of our objects
 ##-----------------------------
