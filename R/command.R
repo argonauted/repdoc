@@ -448,20 +448,26 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   sendEvalMessage(docSessionId,modLine$lineId,currentCmdIndex)
   
   ##evaluate, printing outputs to the console
+  ##withCallHandlers - captures messages adn warnings without exiting
+  ##tryCatch - captures errors with exiting
   if(modLine$parseValid) {
-    tryCatch({
-      ##this evaluates the exprs with autoprint, like the console does
-      withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
-    },
-    error=function(err) {
-      sendConsoleMessage("stderr",err$message,docSessionId)
-    },
-    warning=function(wrn) {
-      sendConsoleMessage("stdwrn",wrn$message,docSessionId)
-    },
-    message=function(m) {
-      sendConsoleMessage("stdmsg",m$message,docSessionId)
-    }
+    tryCatch(
+      withCallingHandlers({
+          ##this evaluates the exprs with autoprint, like the console does
+          withAutoprint(exprs=modLine$exprs,local=envir,evaluated=TRUE,echo=FALSE)
+        },
+        warning=function(wrn) {
+          sendConsoleMessage("stdwrn",wrn$message,docSessionId)
+          rlang::cnd_muffle(wrn)
+        },
+        message=function(m) {
+          sendConsoleMessage("stdmsg",m$message,docSessionId)
+          rlang::cnd_muffle(m)
+        }
+      ),
+      error=function(err) {
+        sendConsoleMessage("stderr",err$message,docSessionId)
+      }
     )
   }
   else {
