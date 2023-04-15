@@ -884,3 +884,49 @@ sendMessage <- function(type,docSessionId,data) {
   print(paste(MESSAGE_HEADER,makeJson(body),MESSAGE_FOOTER,sep=""))
 }
 
+
+##=============================================
+## future interface to read environment variables
+##=============================================
+
+
+loadLibEnvVars <- function() {
+  libEnvVars <- getAllLibEnvVars()
+  jsonlite::toJSON(libEnvVars)
+}
+
+loadNamedLibEnvVars <- function(pkgName) {
+  libEnvVars <- getNamedLibEnvVars(pkgName)
+  jsonlite::toJSON(libEnvVars)
+}
+
+getAllLibEnvVars <- function() {
+  libData <- list()
+  envir <- rlang::global_env()
+  while(!identical(envir,rlang::empty_env())) {
+    envir <- rlang::env_parent(envir)
+    libData[[length(libData)+1]] <- processEnvir(envir)
+  }
+  libData
+}
+
+getNamedLibEnvVars <- function(pkgName) {
+  libData <- list()
+  envir <- rlang::global_env()
+  while(!identical(envir,rlang::empty_env())) {
+    envir <- rlang::env_parent(envir)
+    if(identical(attributes(envir)$name,pkgName)) {
+      return(processEnvir(envir))
+    }
+  }
+  NULL
+}
+
+processEnvir <- function(envir) {
+  entry <- list()
+  entry$name <- attributes(envir)$name
+  entry$path <- attributes(envir)$path
+  entry$var <- lapply(envars,preserialize)
+  entry
+}
+
