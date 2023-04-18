@@ -892,12 +892,14 @@ sendMessage <- function(type,docSessionId,data) {
 
 loadLibEnvVars <- function() {
   libEnvVars <- getAllLibEnvVars()
-  jsonlite::toJSON(libEnvVars)
+  json <- jsonlite::toJSON(libEnvVars,force=TRUE)
+  as.character(json)
 }
 
 loadNamedLibEnvVars <- function(pkgName) {
   libEnvVars <- getNamedLibEnvVars(pkgName)
-  jsonlite::toJSON(libEnvVars)
+  json <- jsonlite::toJSON(libEnvVars)
+  as.character(json)
 }
 
 getAllLibEnvVars <- function() {
@@ -926,7 +928,8 @@ processEnvir <- function(envir) {
   entry <- list()
   entry$name <- attributes(envir)$name
   entry$path <- attributes(envir)$path
-  entry$var <- lapply(envars,preserialize)
+  envVars <- getEnvVars(envir)
+  entry$var <- lapply(envVars,preserialize)
   entry
 }
 
