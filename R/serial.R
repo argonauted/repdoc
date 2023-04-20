@@ -1,12 +1,11 @@
-DEFAULT_OPTIONS <- list(vec.len=10,mat.len=5,list.len=100,df.len=5,digits=4,max.depth=5)
+DEFAULT_OPTIONS <- list(vec.len=10,mat.len=5,list.len=10,df.len=5,names.len=100,digits=4,max.depth=4)
 
-DEFAULT_SER_DIGITS = 4
-
-createOptions <- function(vec.len=NULL,mat.len=NULL,list.len=NULL,df.len=NULL,digits=NULL,max.depth=NULL) {
+createOptions <- function(vec.len=NULL,mat.len=NULL,list.len=NULL,df.len=NULL,names.len=NULL,digits=NULL,max.depth=NULL) {
   options <- DEFAULT_OPTIONS
   if(!is.null(vec.len)) options$vec.len = vec.len
   if(!is.null(mat.len)) options$mat.len = mat.len
   if(!is.null(list.len)) options$list.len = list.len
+  if(!is.null(names.len)) options$names.len = names.len
   if(!is.null(df.len)) options$df.len = df.len
   if(!is.null(digits)) options$digits = digits
   if(!is.null(max.depth)) options$max.depth = max.depth
@@ -14,8 +13,8 @@ createOptions <- function(vec.len=NULL,mat.len=NULL,list.len=NULL,df.len=NULL,di
 }
 
 
-makeJson <- function(preJson) {
-  jsonlite::toJSON(preJson,digits=DEFAULT_SER_DIGITS,null="null")
+makeJson <- function(preJson,options=DEFAULT_OPTIONS) {
+  jsonlite::toJSON(preJson,digits=options$digits,null="null",force=TRUE)
 }
 
 
@@ -60,84 +59,104 @@ preserializeAtomic <- function(obj,options=DEFAULT_OPTIONS) {
 
 preserializeVector <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox(typeof(obj))
-  objInfo$len <- jsonlite::unbox(length(obj))
-  if(objInfo$len > options$vec.len) {
-    objInfo$short <- jsonlite::unbox(TRUE)
+  objInfo$fmt <- jsonlite::unbox("vector")
+  boxedType <- getAtomicType(obj)
+  objInfo$type <- jsonlite::unbox(boxedType)
+  dataObj <- head(obj,options$vec.len)
+  if(!identical(boxedType,class(obj)[1])) {
+    objInfo$class = jsonlite::unbox(class(obj)[1])
+    dataObj <- as.vector(dataObj)
   }
-  objInfo$data <- head(obj,options$vec.len)
+  objInfo$len <- jsonlite::unbox(length(obj))
+  objInfo$data <- dataObj
   if(!is.null(names(obj))) {
-    objInfo$names <- head(names(obj),options$vec.len)
+    objInfo$names <- head(names(obj),options$names.len)
   }
   objInfo
 }
 
 preserializeMatrix <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("matrix")
-  objInfo$atom <- jsonlite::unbox(typeof(obj))
-  objInfo$dim <- dim(obj)
+  objInfo$fmt <- jsonlite::unbox("matrix")
+  objInfo$type <- jsonlite::unbox(getAtomicType(obj))
   if( any(dim(obj) > options$mat.len) ) {
-    objInfo$short <- jsonlite::unbox(TRUE)
-    objInfo$data <- getShortenedArray(obj,options$mat.len)
+    dataObj <- getShortenedArray(obj,options$mat.len)
   }
   else {
-    objInfo$data <- obj
+    dataObj <- obj
   }
-  dimNames <- dimnames(objInfo$data)
-  dimLabels <- names(dimNames)
+  if(!identical("matrix",class(obj)[1])) {
+    objInfo$class = jsonlite::unbox(class(obj)[1])
+    dataObj <- as.matrix(dataObj)
+  }
+  objInfo$dim <- dim(obj)
+  dimNames <- dimnames(obj)
+  dimnames(dataObj) <- NULL
+  objInfo$data <- dataObj
   if(!is.null(dimNames)) {
-    names(dimNames) = NULL ## we pass these dim labels below
+    dimLabels <- names(dimNames)
+    names(dimNames) <- NULL
+    dimNames <- lapply(dimNames,head,n=options$names.len)
     objInfo$dimNames <- dimNames
-  }
-  if(!is.null(dimLabels)) {
-    objInfo$dimLabels <- dimLabels
+    if(!is.null(dimLabels)) {
+      objInfo$dimLabels <- dimLabels
+    }
   }
   objInfo
 }
 
 preserializeArray <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("array")
-  objInfo$atom <- jsonlite::unbox(typeof(obj))
-  objInfo$dim <- dim(obj)
-  dimNames <- dimnames(objInfo$data)
-  dimLabels <- names(dimNames)
-  if(!is.null(dimNames)) {
-    names(dimNames) = NULL ## we pass these dim labels below
-    objInfo$dimNames <- dimNames
+  objInfo$fmt <- jsonlite::unbox("array")
+  objInfo$type <- jsonlite::unbox(getAtomicType(obj))
+  if(!identical("array",class(obj)[1])) {
+    objInfo$class = jsonlite::unbox(class(obj)[1])
   }
-  if(!is.null(dimLabels)) {
-    objInfo$dimLabels <- dimLabels
+  objInfo$dim <- dim(obj)
+  dimNames <- dimnames(obj)
+  if(!is.null(dimNames)) {
+    dimLabels <- names(dimNames)
+    names(dimNames) = NULL
+    dimNames <- lapply(dimNames,head,n=options$names.len)
+    objInfo$dimNames <- dimNames
+    if(!is.null(dimLabels)) {
+      objInfo$dimLabels <- dimLabels
+    }
   }
   objInfo
-  
 }
 
 preserializeFactor <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("factor")
-  objInfo$ordered <- jsonlite::unbox(is.ordered(obj))
+  objInfo$fmt <- jsonlite::unbox("factor")
+  if(!identical("factor",class(obj)[1])) {
+    objInfo$class = jsonlite::unbox(class(obj)[1])
+  }
   objInfo$len <- jsonlite::unbox(length(obj))
-  
-  if(length(obj) > options$vec.len) {
-    objInfo$short <- jsonlite::unbox(TRUE)
-  }
-  objInfo$data <- head(obj,options$vec.len)
-  
+  objInfo$data <- as.character(head(obj,options$vec.len))
   if(length(levels(obj)) > options$vec.len) {
-    objInfo$levelsShort <- jsonlite::unbox(TRUE)
+    objInfo$lvlsLen <- jsonlite::unbox(length(levels(obj)))
+    objInfo$levels <- as.character(head(levels(obj),options$vec.len))
   }
-  objInfo$levels <- head(levels(obj),options$vec.len)
-  
+  else {
+    objInfo$levels <- as.character(levels(obj))
+  }
   objInfo
 }
 
 preserializeUnknownAtomic <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("Atomic Type")
+  objInfo$fmt <- jsonlite::unbox("Atomic")
   objInfo$class <- jsonlite::unbox(class(obj)[1])
   objInfo
+}
+
+## This is what we call the type of the atomic object. It is the same as
+## typeof except instead of using double we use numeric, only because
+## we want this field to be the same as the class
+getAtomicType <- function(atomicObj) {
+  type <- typeof(atomicObj)
+  if(identical(type,"double")) "numeric" else type
 }
 
 preserializeRecursive <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
@@ -154,30 +173,28 @@ preserializeRecursive <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
 
 preserializeDataFrame <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("data.frame")
+  objInfo$fmt <- jsonlite::unbox("data.frame")
+  if(!identical(class(obj)[1],"data.frame")) {
+    objInfo$class <- jsonlite::unbox(class(obj)[1])
+  }
   objInfo$dim <- dim(obj)
   
-  effObj <- obj
-  if(nrow(effObj) > options$df.len) {
-    objInfo$rowShort <- jsonlite::unbox(TRUE)
-    effObj <- head(effObj,options$df.len)
+  dataObj <- obj
+  if(nrow(dataObj) > options$df.len) {
+    dataObj <- head(dataObj,options$df.len)
   }
-  rowNames <- rownames(effObj)
-  effObj <- as.list(effObj)
-  if(length(effObj) > options$list.len) {
-    objInfo$colShort <- jsonlite::unbox(TRUE)
-    effObj <- head(effObj,options$list.len)
+  dataObj <- as.list(dataObj)
+  if(length(dataObj) > options$list.len) {
+    dataObj <- head(dataObj,options$list.len)
   }
-  colNames <- names(effObj)
-  colTypes <- sapply(effObj,getColType)
-  names(effObj) <- NULL
+  names(dataObj) <- NULL
+  colNames <- head(colnames(obj),options$names.len)
+  rowNames <- head(rownames(obj),options$names.len)
+  colTypes <- sapply(dataObj,getColType)
   objInfo$rowNames <- rowNames
   objInfo$colNames <- colNames
   objInfo$colTypes <- colTypes
-  objInfo$data <- effObj
-  if(class(obj)[1] != "data.frame") {
-    objInfo$class <- jsonlite::unbox(class(obj)[1])
-  }
+  objInfo$data <- dataObj
   objInfo
 }
 
@@ -186,50 +203,59 @@ getColType <- function(columnObj) {
     "factor"
   }
   else {
-    typeof(columnObj)
+    getAtomicType(columnObj)
   }
 }
 
 preserializeList <- function(obj,depth=1,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("list")
+  objInfo$fmt <- jsonlite::unbox("list")
+  if(!identical(class(obj)[1],"list")) {
+    objInfo$class <- jsonlite::unbox(class(obj)[1])
+  }
   objInfo$len <- jsonlite::unbox(length(obj))
   if(length(obj) > options$list.len) {
-    objInfo$short <- TRUE
-    effObj <- head(obj,options$list.len)
+    dataObj <- head(obj,options$list.len)
   }
   else {
-    effObj <- obj
+    dataObj <- obj
   }
-  nms <- names(effObj)
+  nms <- head(names(obj),n=options$names.len)
   objInfo$names <- nms
   if(depth <= options$max.depth) {
-    data <- purrr::map(effObj,preserialize,depth=depth+1,options)
+    data <- purrr::map(dataObj,preserialize,depth=depth+1,options)
     names(data) <- NULL
     objInfo$data <- data
   }
   else {
     objInfo$depthExceeded <- jsonlite::unbox(TRUE)
   }
-  if(class(obj)[1] != "list") {
-    objInfo$class <- jsonlite::unbox(class(obj)[1])
-  }
+  
   objInfo
 }
 
 preserializeUnknownRecursive <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("Recursive Type")
+  objInfo$type <- jsonlite::unbox("Recursive")
   objInfo$class <- jsonlite::unbox(class(obj)[1])
   objInfo
 }
 
 preserializeFunction <- function(obj,options=DEFAULT_OPTIONS) {
   objInfo <- list()
-  objInfo$type <- jsonlite::unbox("function")
+  objInfo$fmt <- jsonlite::unbox("function")
   objInfo$params <- formalArgs(obj)
-  objInfo$signature <- jsonlite::unbox(deparse(args(obj))[1])
+  objInfo$paramList <- jsonlite::unbox(getParamList(obj))
   objInfo
+}
+
+getParamList <- function(func) {
+  val <- deparse(args(func))
+  length(val) <- length(val) - 1
+  val <- trimws(val,which="left")
+  val <- paste(val,collapse="")
+  val <- substring(val,nchar("function "))
+  trimws(val)
 }
 
 ##-----------------------------

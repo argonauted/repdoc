@@ -892,13 +892,13 @@ sendMessage <- function(type,docSessionId,data) {
 
 loadLibEnvVars <- function() {
   libEnvVars <- getAllLibEnvVars()
-  json <- jsonlite::toJSON(libEnvVars,force=TRUE)
+  json <- makeJson(libEnvVars,force=TRUE)
   as.character(json)
 }
 
 loadNamedLibEnvVars <- function(pkgName) {
   libEnvVars <- getNamedLibEnvVars(pkgName)
-  json <- jsonlite::toJSON(libEnvVars)
+  json <- makeJson(libEnvVars)
   as.character(json)
 }
 
