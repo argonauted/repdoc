@@ -892,7 +892,7 @@ sendMessage <- function(type,docSessionId,data) {
 
 loadLibEnvVars <- function() {
   libEnvVars <- getAllLibEnvVars()
-  json <- makeJson(libEnvVars,force=TRUE)
+  json <- makeJson(libEnvVars)
   as.character(json)
 }
 
@@ -913,12 +913,16 @@ getAllLibEnvVars <- function() {
 }
 
 getNamedLibEnvVars <- function(pkgName) {
-  libData <- list()
-  envir <- rlang::global_env()
-  while(!identical(envir,rlang::empty_env())) {
-    envir <- rlang::env_parent(envir)
-    if(identical(attributes(envir)$name,pkgName)) {
-      return(processEnvir(envir))
+  if(identical(pkgName,"package:base")) {
+    return(processEnvir(rlang::base_env())) ## this doesn't have a matching property
+  }
+  else {
+    envir <- rlang::global_env()
+    while(!identical(envir,rlang::empty_env())) {
+      envir <- rlang::env_parent(envir)
+      if(identical(attributes(envir)$name,pkgName)) {
+        return(processEnvir(envir))
+      }
     }
   }
   NULL
