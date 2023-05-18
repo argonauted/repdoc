@@ -10,13 +10,14 @@
 ##           The higher index is the local frame, and if applicable, the other represents all parent frames
 ## - isGlobal - the input variable isGlobal
 ##
-## each frame is a data.frame with the columns:
-## - name - char        # the variable name (also this is the row name)
-## - isfunc - bool      # TRUE means it is a function. FALSE means unknown (for now)
+## each frame is a list with the entry for each variable being a logical vector with names:
 ## - assigned - bool    # TRUE means this variable was set in the code
-## - refd - bool        # TRUE means this variable was references from the code
+## - isfunc - bool      # TRUE means it was assigned as a function
+## - refascall - bool   # TRUE means it is referenced in a call
+## - refasnon - bool    # TRUE means it is referenced in a non-call
 ##
 ## NOTES
+## - References are only labeled if they are done before an assignment
 ## - All referenced variables are recorded in the local frame, unless it was referenced
 ## from a LHS function super assignment from the local frame and the local frame was not globals.
 ## Referenced variables may still be in a parent frame.
@@ -27,12 +28,18 @@
 
 ## DOH! This still isn't right!  I haven't worked it out yet
 
+FIELD_NAMES <- c("assigned","isfunc","refascall","refasnorm")
+ASSIGNED <- 1
+ISFUNC <- 2
+REFASCELL <- 3
+REFASNORM <- 4
+
 
 analyze_code <- function(code,isGlobal) {
   if(!isGlobal) {
     stop("Only global code is supported now!")
   }
-  varInfo <- getInitialVarInfo()
+  varInfo <- getInitialVarInfo(isGlobal)
   exprs <- rlang::parse_exprs(code)
   traverse_exprs(varInfo,exprs)
 }
@@ -59,7 +66,7 @@ traverse_expr <- function(varInfo,expr) {
   }
 }
 
-getInitialVarInfo(isGlobal) {
+getInitialVarInfo <- function(isGlobal) {
   varInfo <- list(stack = list(getEmptyFrame()),isGlobal=isGlobal)
   if(!isGlobal) {
     varInfo <- pushFrame(varInfo)
@@ -68,7 +75,13 @@ getInitialVarInfo(isGlobal) {
 }
 
 getEmptyFrame <- function() {
-  data.frame(name=character(),isfunc=logical(),assigned=logical(),refd=logical(),assuper=logical())
+  list()
+}
+
+createVarEntry <- function(name,assigned,isfunc,refascall,refasnorm) {
+  entry <- c(assigned,isfunc,refascall,refasnorm)
+  names(entry) <- FIELD_NAMES
+  entry
 }
 
 ## Adds an empty frame to the varInfo frame stack
@@ -83,37 +96,110 @@ popFrame <- function(varInfo) {
   varInfo
 }
 
-
-## super needed only when accessing from parent environment rather than current
-## environment, such as for a LHS function assignment.
-addToReferences <- function(varInfo,varName,isCall,superOnly=FALSE) {
-  ## - name = varName
-  ## - isFunction = isCall
-  ## - assigned = unchanged
-  ## - referenced = TRUE
-  ## - assignAsSuper = superOnly # we need this 
-}
-
-addToAssignments <- function(varInfo,varName,isFunction,isSuper) {
-  ## - name = varName
-  ## - isFunction = isFunction
-  ## - assigned = TRUE
-  ## - referenced = unchanged
+getRefIndex <- function(varInfo,name,refAsCall,isSuper) {
+  startIndex <- length(varInfo$stack)
+  if(isSuper && startIndex > 1) startIndex <- startIndex - 1
   
-  ## isSuper == FALSE
-  ## - add an assignment to the local environment if not already there
-  ##
-  ## isSuper == TRUE
-  ## - add an assignment to a parent environment (up to global) if not already there
+  for(index in startIndex:1) {
+    frame <- varInfo$stack[[index]]
+    entry <- frame[[name]]
+    ##=================================================================================================
+    ## DOH! How should we respond to a reference to a function when we don't know if it is a function
+    ## For now I am assuming it is a function only when we define it as a simple function definition
+    ## THINK ABOUT OTHER OPTIONS - maybe multiple returns?
+    ##=================================================================================================
+    if(!is.null(entry) && ( !refAsCall || (refAsCall && frameEntryDefiniteFunction(entry))) ) {
+      ## this index has the variable
+      return(index)
+    }
+  }
+  ## top index
+  1
+  
+  
+  ## REVIEW THIS - 
+  ## get frame index:
+  ## - go through frames (start at top if isSuper = false, otherwise start at next or global)
+  ## - look for the variable name
+  ## - get that index
+  
+  ## we will only mark as referenced if it has not been assigned
+  ## - not present - mark as referenced by type (call or norm)
+  ## - present, not assigned - update type field (call or norm)
+  ## - present, assigned - mark as referenced if the assigned type does not "match" the referenced type
+  ##   - ref is call, assign isfunc TRUE: no new reference
+  ##   - ref is call, assign isfunc FALSE: yes new reference ## for now we might not even store this value in assignments
+  ##   - ref is call, assign isfunc NA: ?? yes new reference ## conservative - maybe unnecessary reference
+  ##   - ref is norm: no new reference
 }
+
+## this returns true if the frame entry counts as a function
+frameEntryMaybeFunction <- function(entry) {
+  entry[ISFUNC] != FALSE
+}
+
+frameEntryDefiniteFunction <- function(entry) {
+  entry[ISFUNC] == TRUE
+}
+
+
+addToReferences <- function(varInfo,name,isCall,isSuper=FALSE) {
+  frameIndex <- getRefIndex(varInfo,name,refAsCall=isCall,isSuper=TRUE)
+  
+  ## add or update entry 
+  entry <- varInfo$stack[[frameIndex]][[name]]
+  if(is.null(entry)) {
+    entry = createVarEntry(name,assigned=FALSE,isfunc=isCall,refascall=isCall,refasnorm=!isCall)
+  }
+  else if(!entry[ASSIGNED]) {
+    ## mark as referenced only if it is not been assigned yet
+    if(isCall) {
+      if(!entry[REFASCELL]) entry[REFASCELL] = TRUE
+    }
+    else {
+      if(!entry[REFASNORM]) entry[REFASNORM] = TRUE
+    }
+  }
+  varInfo$stack[[frameIndex]][[name]] <- entry
+  varInfo
+}
+
+
+addToAssignments <- function(varInfo,name,isFunction,isSuper) {
+  ## get the proper frame to insert the assignment
+  if(!isSuper) {
+    frameIndex <- length(varInfo$stack)
+  }
+  else {
+    frameIndex <- getRefIndex(varInfo,name,refAsCall=FALSE,isSuper=TRUE)
+  }
+  
+  ## add or update entry 
+  entry <- varInfo$stack[[frameIndex]][[name]]
+  if(is.null(entry)) {
+    entry = createVarEntry(name,assigned=TRUE,isfunc=isFunction,refascall=FALSE,refasnorm=FALSE)
+  }
+  else {
+    ## mark as assigned whether we already referenced it or not.
+    if(!entry[ASSIGNED]) entry[ASSIGNED] <- TRUE ## ok if already TRUE
+    if(entry[ISFUNC] != isFunction) entry[ISFUNC] <- isFunction ## we want last assignment
+  }
+  varInfo$stack[[frameIndex]][[name]] <- entry
+  varInfo
+}
+
 
 processSymbol <- function(varInfo,expr) {
-  varInfo <- addToReferences(varInfo,lhsVarName,isCall=FALSE)
-  varInfo$used <- c(varInfo$used,as.character(expr))
+  ##normal reference from code
+  name <- as.character(expr)
+  varInfo <- addToReferences(varInfo,name,isCall=FALSE)
   varInfo
 }
 
 processCall <- function(varInfo,expr) {
+  funcName <- as.character(expr[[1]])
+  varInfo <- addToReferences(varInfo,funcName,isCall=TRUE)
+  
   if(rlang::is_call(expr,"function")) {
     stop("Function definition not implemented!")
   }
@@ -128,39 +214,39 @@ processCall <- function(varInfo,expr) {
     stop("::, ::: call not implemented!")
   }
   else {
-    traverse_exprs(varInfo,as.list(expr))
+    traverse_exprs(varInfo,as.list(expr)[2:length(expr)])
   }
   
 }
 
 processAssign <- function(varInfo,expr) {
-  isSuper <- isCall(expr,"<<-")
-  rhsExpr <- lhsExpr[[3]]
+  isSuper <- rlang::is_call(expr,"<<-")
   
   ## check if we are assigning a function
   ## true means yes, false means maybe
+  rhsExpr <- expr[[3]]
   isFunction <- rlang::is_call(rhsExpr,"function")
-
+  
   if(rlang::is_call(expr[[2]])) {
     varInfo <- processFuncAssign(varInfo,expr[[2]],isFunction,isSuper)
   }
   else if(rlang::is_symbol(expr[[2]])) {
     assignee <- as.character(expr[[2]])
-    addToAssignments(varInfo,assignee,isFunction,isSuper)
+    varInfo <- addToAssignments(varInfo,assignee,isFunction,isSuper)
   }
   else {
     stop(sprintf("Unknown case: assignee is not a call or symbol: %s",as.character(expr[[2]])))
   }
   
   ## traverse the RHS
-  varInfo <- traverse_exprs(varInfo,as.list(rhsExpr))
-
+  varInfo <- traverse_exprs(varInfo,expr[3])
+  
   varInfo
 }
 
 processFuncAssign <- function(varInfo,lhsExpr,isSuper,isFunction) {
   if(rlang::is_symbol(lhsExpr[[1]])) {
-    funcName <- sprintf("`%s<-`",as.character(lhsExpr[[1]]))
+    funcName <- sprintf("%s<-",as.character(lhsExpr[[1]]))
     varInfo <- addToReferences(varInfo,funcName,isCall=TRUE)
   }
   else {
@@ -175,18 +261,17 @@ processFuncAssign <- function(varInfo,lhsExpr,isSuper,isFunction) {
     ## function complicates things. (This means it is a 'maybe')
     
     ## make assignments and reference
-    varInfo <- addToReferences(varInfo,varName,isCall=FALSE,superOnly=isSuper)
-    ## NOTE - 'FALSE' for isSuper. In either case, it creates a local copy of variable
-    varInfo <- addToAssignments(varInfo,varName,isFunction=FALSE,isSuper=FALSE)
+    varInfo <- addToReferences(varInfo,varName,isCall=FALSE,isSuper)
+    varInfo <- addToAssignments(varInfo,varName,isFunction=FALSE,isSuper) ##change  this to NA?
   }
   else {
     ## we handle expressions on LHS recursively
-    varInfo <- processFuncAssign(varInfo, lhsExpr[[2]])
+    varInfo <- processFuncAssign(varInfo, lhsExpr[[2]],isSuper,isFunction)
   }
   
   ## any other args are regular references
   if(length(lhsExpr) > 2) {
-    varInfo <- traverse_exprs(varInfo,as.list(lhsExpr)[3:length(lhsExpr)],inGlvEnv)
+    varInfo <- traverse_exprs(varInfo,as.list(lhsExpr)[3:length(lhsExpr)])
   }
   
   varInfo
