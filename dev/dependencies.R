@@ -86,13 +86,13 @@ createVarEntry <- function(name,assigned,isfunc,refascall,refasnorm) {
 
 ## Adds an empty frame to the varInfo frame stack
 pushFrame <- function(varInfo) {
-  varInfo$stack <- c(varInfo$stack,getEmptyFrame())
+  varInfo$stack[[length(varInfo$stack)+1]] <- getEmptyFrame()
   varInfo
 }
 
 ## remove the top frame from the varInfo frame stack
 popFrame <- function(varInfo) {
-  varInfo <- varInfo[1:(length(varInfo)-1)]
+  varInfo$stack <- varInfo$stack[1:(length(varInfo$stack)-1)]
   varInfo
 }
 
@@ -144,7 +144,7 @@ frameEntryDefiniteFunction <- function(entry) {
 
 
 addToReferences <- function(varInfo,name,isCall,isSuper=FALSE) {
-  frameIndex <- getRefIndex(varInfo,name,refAsCall=isCall,isSuper=TRUE)
+  frameIndex <- getRefIndex(varInfo,name,refAsCall=isCall,isSuper)
   
   ## add or update entry 
   entry <- varInfo$stack[[frameIndex]][[name]]
@@ -201,7 +201,7 @@ processCall <- function(varInfo,expr) {
   varInfo <- addToReferences(varInfo,funcName,isCall=TRUE)
   
   if(rlang::is_call(expr,"function")) {
-    stop("Function definition not implemented!")
+    processFunctionDef(varInfo,expr)
   }
   else if(rlang::is_call(expr,c("<-","=","<<-"))) {
     ## this includes all 5 assigns. Parser converts right assign to left assign
@@ -220,11 +220,14 @@ processCall <- function(varInfo,expr) {
 }
 
 processAssign <- function(varInfo,expr) {
+  ## traverse the RHS first
+  rhsExpr <- expr[[3]]
+  varInfo <- traverse_expr(varInfo,rhsExpr)
+  
   isSuper <- rlang::is_call(expr,"<<-")
   
   ## check if we are assigning a function
   ## true means yes, false means maybe
-  rhsExpr <- expr[[3]]
   isFunction <- rlang::is_call(rhsExpr,"function")
   
   if(rlang::is_call(expr[[2]])) {
@@ -237,9 +240,6 @@ processAssign <- function(varInfo,expr) {
   else {
     stop(sprintf("Unknown case: assignee is not a call or symbol: %s",as.character(expr[[2]])))
   }
-  
-  ## traverse the RHS
-  varInfo <- traverse_exprs(varInfo,expr[3])
   
   varInfo
 }
@@ -274,6 +274,32 @@ processFuncAssign <- function(varInfo,lhsExpr,isSuper,isFunction) {
     varInfo <- traverse_exprs(varInfo,as.list(lhsExpr)[3:length(lhsExpr)])
   }
   
+  varInfo
+}
+
+processFunctionDef <- function(varInfo,expr) {
+  print("Function definition")
+  
+  ## add a new frame
+  varInfo <- pushFrame(varInfo)
+  
+  ## get param list and defaults - process in order
+  paramList <- expr[[2]]
+  for(index in seq_along(paramList)) {
+    varInfo <- processFuncParam(varInfo,names(paramList)[[index]],paramList[[index]])
+  }
+  
+  ## process body
+  varInfo <- traverse_expr(varInfo,expr[[3]])
+  
+  popFrame(varInfo)
+}
+
+processFuncParam <- function(varInfo,name,defaultExpr) {
+  varInfo <- addToAssignments(varInfo,name,isFunction=FALSE,isSuper=FALSE)
+  if(rlang::is_expression(defaultExpr)) {
+    varInfo <- traverse_expr(varInfo,defaultExpr)
+  }
   varInfo
 }
 
