@@ -188,7 +188,6 @@ addToAssignments <- function(varInfo,name,isFunction,isSuper) {
   varInfo
 }
 
-
 processSymbol <- function(varInfo,expr) {
   ##normal reference from code
   name <- as.character(expr)
@@ -197,8 +196,14 @@ processSymbol <- function(varInfo,expr) {
 }
 
 processCall <- function(varInfo,expr) {
-  funcName <- as.character(expr[[1]])
-  varInfo <- addToReferences(varInfo,funcName,isCall=TRUE)
+  if(rlang::is_symbol(expr[[1]])) {
+    funcName <- as.character(expr[[1]])
+    varInfo <- addToReferences(varInfo,funcName,isCall=TRUE)
+  }
+  else {
+    ##DOH! we won't be recording this as a function, but currently that's ok
+    varInfo <- traverse_expr(varInfo,expr[[1]])
+  }
   
   if(rlang::is_call(expr,"function")) {
     processFunctionDef(varInfo,expr)
@@ -208,10 +213,13 @@ processCall <- function(varInfo,expr) {
     processAssign(varInfo,expr)
   }
   else if(rlang::is_call(expr,c("$","@"))) {
-    stop("$, @ call not implemented!")
+    ##third argument is a symbol but not a variable
+    traverse_expr(varInfo,expr[[2]])
   }
   else if(rlang::is_call(expr,c("::",":::"))) {
-    stop("::, ::: call not implemented!")
+    ## change this!!! for now I'll just save the whole thing as a varible name
+    varName <- paste(expr[[2]],expr[[1]],expr[[3]],sep="")
+    varInfo <- addToReferences(varInfo,varName,isCall=FALSE) #DOH! I don't know if this is a call. I don't think it hurst us now
   }
   else {
     traverse_exprs(varInfo,as.list(expr)[2:length(expr)])
