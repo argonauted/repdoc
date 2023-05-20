@@ -1,5 +1,6 @@
 source("./R/utils.R")
 source("./R/serial.R")
+source("./R/dependencies.R")
 
 ##Constants
 
@@ -321,9 +322,15 @@ evaluateDocState <- function(docState,envir) {
       
       ##clean this up - I do something similar for versions in other places
       ##also. later we should get better versions for what I call here SYSTEM_REF_VERSION variables
-      codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$codeInputs))
-      names(codeInputVersions) <- modLine$codeInputs
-      envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
+      
+      ######################################################################################################
+      #codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$codeInputs))
+      #names(codeInputVersions) <- modLine$codeInputs
+      #envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
+      codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$DEV_codeInputs))
+      names(codeInputVersions) <- modLine$DEV_codeInputs
+      envirCodeInputs <- intersect(modLine$DEV_codeInputs,names(modLine$inVarList))
+      ######################################################################################################
       codeInputVersions[envirCodeInputs] <- modLine$inVarVersions[envirCodeInputs]
       
       ##update code input versions if code is newer than the inputs or any inputs change
@@ -352,7 +359,10 @@ evaluateDocState <- function(docState,envir) {
       ## no code inputs were changed
       ## carry over any non-code inputs to the outputs that are not code outputs
       ## (This means we need to get the code outputs right!)
-      outputs <- c(modLine$created,modLine$updated)
+      ################################################################
+      #outputs <- c(modLine$created,modLine$updated)
+      outputs <- modLine$DEV_codeOutputs
+      ################################################################
       
       outVarList <- modLine$inVarList
       outVarList[outputs] <- modLine$outVarList[outputs]
@@ -518,27 +528,51 @@ updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
   ## !!!:
   ## This is messy and future error prone 
   ## This should be cleaned up.
-  if( !(RANDOM_SEED_NAME %in% newLine$codeInputs) ) {
+  #if( !(RANDOM_SEED_NAME %in% newLine$codeInputs) ) {
+  if( !(RANDOM_SEED_NAME %in% newLine$DEV_codeInputs) ) {
     if(RANDOM_SEED_NAME %in% created) {
       ##move from created to updated, since we will set this to be a code input
       created = created[created != RANDOM_SEED_NAME]
       updated = c(updated,RANDOM_SEED_NAME)
       
       ##add code input with version coming from system
-      newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      #newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      ###################################################################################
+      newLine$DEV_codeInputs <- c(newLine$DEV_codeInputs,RANDOM_SEED_NAME)
+      newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,RANDOM_SEED_NAME)
+      ###################################################################################
       newLine$codeInputVersions[[RANDOM_SEED_NAME]] = SYSTEM_REF_VERSION
     }
     else if(RANDOM_SEED_NAME %in% updated) {
       ##add code input with version coming from system in var versions
-      newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      #newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
+      ###################################################################################
+      newLine$DEV_codeInputs <- c(newLine$DEV_codeInputs,RANDOM_SEED_NAME)
+      newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,RANDOM_SEED_NAME)
+      ###################################################################################
       newLine$codeInputVersions[[RANDOM_SEED_NAME]] = newLine$inVarVersions[RANDOM_SEED_NAME]
     }
   }
   ##========================================================================
   
-  newLine$created <- created
-  newLine$updated <- updated
-  newLine$deleted <- deleted ##do we need this?
+  #####################################################
+  #newLine$created <- created
+  #newLine$updated <- updated
+
+  
+  
+  measuredOutputs <- c(created,updated)
+  extraOuts <- setdiff(measuredOutputs,newLine$DEV_codeOutputs)
+  if(length(extraOuts) > 0) {
+    newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,extraOuts)
+    print("extraOuts detected")
+    print(extraOuts)
+  }
+  
+  
+  ############################################################
+  newLine$deleted <- deleted
+
   newLine$outIndex <- currentCmdIndex
   newLine$outVarList <- newVarList
   newLine$outVarVersions <- newVarVersions
@@ -781,8 +815,29 @@ processCode <- function(entry,code) {
     ##TBD - add other handlers, for warnings or messages
   )
   
-  entry$codeInputs <- if(entry$parseValid) getDependencies(code) else character()
+  #entry$codeInputs <- if(entry$parseValid) getDependencies(code) else character()
   
+  ###########################################################################
+  if(entry$parseValid) {
+    depInfo <- analyze_code(code,isGlobal = TRUE)
+    inputs <- character()
+    outputs <- character()
+    frame <- depInfo$stack[[1]] ## we are assuming global == TRUE!!!
+    for(name in names(frame)) {
+      depVar <- frame[[name]]
+      isInput <- (depVar[[REFASCALL]] || depVar[[REFASNORM]])
+      isOutput <- depVar[[ASSIGNED]]
+      
+      if(isInput) inputs <- c(inputs,name)
+      if(isOutput) outputs <- c(outputs,name)
+    }
+    
+    entry$DEV_codeInputs <- inputs
+    entry$DEV_codeOutputs <- outputs
+    
+  }
+
+  #########################################################################
   entry
 }
 

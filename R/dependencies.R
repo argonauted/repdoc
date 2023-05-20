@@ -31,7 +31,7 @@
 FIELD_NAMES <- c("assigned","isfunc","refascall","refasnorm")
 ASSIGNED <- 1
 ISFUNC <- 2
-REFASCELL <- 3
+REFASCALL <- 3
 REFASNORM <- 4
 
 
@@ -61,7 +61,6 @@ traverse_expr <- function(varInfo,expr) {
   }
   else {
     ##no action - syntactic literal or other? 
-    print(sprintf("skipped ast entry: %s",as.character(expr)))
     varInfo
   }
 }
@@ -154,7 +153,7 @@ addToReferences <- function(varInfo,name,isCall,isSuper=FALSE) {
   else if(!entry[ASSIGNED]) {
     ## mark as referenced only if it is not been assigned yet
     if(isCall) {
-      if(!entry[REFASCELL]) entry[REFASCELL] = TRUE
+      if(!entry[REFASCALL]) entry[REFASCALL] = TRUE
     }
     else {
       if(!entry[REFASNORM]) entry[REFASNORM] = TRUE
@@ -219,7 +218,7 @@ processCall <- function(varInfo,expr) {
   else if(rlang::is_call(expr,c("::",":::"))) {
     ## change this!!! for now I'll just save the whole thing as a varible name
     varName <- paste(expr[[2]],expr[[1]],expr[[3]],sep="")
-    varInfo <- addToReferences(varInfo,varName,isCall=FALSE) #DOH! I don't know if this is a call. I don't think it hurst us now
+    varInfo <- addToReferences(varInfo,varName,isCall=FALSE) #DOH! I don't know if this is a call. I don't think it hurts us now
   }
   else {
     traverse_exprs(varInfo,as.list(expr)[2:length(expr)])
@@ -278,7 +277,8 @@ processFuncAssign <- function(varInfo,lhsExpr,isSuper,isFunction) {
   }
   
   ## any other args are regular references
-  if(length(lhsExpr) > 2) {
+  ## DOH! THere are problem other special cases besides "$<-". What about "@<-"?
+  if( (length(lhsExpr) > 2) && (funcName != "$<-") ) {
     varInfo <- traverse_exprs(varInfo,as.list(lhsExpr)[3:length(lhsExpr)])
   }
   
@@ -286,8 +286,6 @@ processFuncAssign <- function(varInfo,lhsExpr,isSuper,isFunction) {
 }
 
 processFunctionDef <- function(varInfo,expr) {
-  print("Function definition")
-  
   ## add a new frame
   varInfo <- pushFrame(varInfo)
   
