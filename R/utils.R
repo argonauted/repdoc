@@ -39,6 +39,12 @@ getEnvVars <- function(envir) {
   envirVars
 }
 
+getVarTypes <- function(varNames, env) {
+  varTypes <- sapply(varNames, function(name) is.function(get(name, envir = env)))
+  names(varTypes) <- varNames
+  return(varTypes)
+}
+
 insertAfter <- function(localDocState,entry,index) {
   newWrappedEntry <- list()
   newWrappedEntry[[entry$lineId]] <- entry

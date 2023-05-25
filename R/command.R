@@ -98,10 +98,13 @@ initializeSession <- function() {
   rlang::env_bind(globalEnv,.sessionStateEnv.=rlang::child_env(globalEnv,docStates=list()))
   
   ##add the initial global environment state data
-  initVarList<-getEnvVars(globalEnv)
-  initVarVersions<-rep(INIT_VERSION,length(initVarList))
-  names(initVarVersions) = names(initVarList)
-  rlang::env_bind(.sessionStateEnv.,initVarList=initVarList,initVarVersions=initVarVersions)
+  initVarNames<-getEnvVars(globalEnv)
+  initVarTypes <- getVarTypes(initVarNames,globalenv)
+  
+  initVarVersions<-rep(INIT_VERSION,length(initVarNames))
+  names(initVarVersions) = names(initVarNames)
+  
+  rlang::env_bind(.sessionStateEnv.,initVarNames=initVarNames,initVarTypes=initVarTypes,initVarVersions=initVarVersions)
   
   ##set the current global environment state
   setEnvVersion(INIT_DOC_SESSION_ID,INIT_LINE_ID,INIT_CMD_INDEX)
@@ -121,10 +124,10 @@ initializeDocState <- function(docSessionId) {
   )
   
   ## DO I NEED  MESSAGE BEFORE THIS? =========
-  initVarList <- getInitVarList()
+  initVarNames <- getInitVarNames()
   initVarVersions <- getInitVarVersions()
   initEnvVarNames <- createVersionedNames(initVarVersions)
-  docState <- updateVarTable(docState,INIT_LINE_ID,initEnvVarNames,character(),initVarList)
+  docState <- updateVarTable(docState,INIT_LINE_ID,initEnvVarNames,character(),initVarNames)
   ##===============================
   
   setDocState(docSessionId,docState)
@@ -186,13 +189,13 @@ setActiveLine <- function(docSessionId,lineId) {
   if(is.null(docState)) return(FALSE)
 
   if(is.null(lineId)) {
-    desiredVarList <- getInitVarList()
+    desiredVarNames <- getInitVarNames()
     desiredCmdIndex <- INIT_CMD_INDEX
   }
   else {
     lineState <- docState$lines[[lineId]]
     if(!is.null(lineState)) {
-      desiredVarList <- lineState$outVarList
+      desiredVarNames <- lineState$outVarNames
       desiredCmdIndex <- lineState$outIndex
     }
     else {
@@ -209,8 +212,8 @@ setActiveLine <- function(docSessionId,lineId) {
     ###################################
     ## temp logc for breakpoint/browser dev
     envir <- rlang::caller_env()
-    setEnvVars(envir,desiredVarList)
-    ##setEnvVars(rlang::global_env(),desiredVarList)
+    setEnvVars(envir,desiredVarNames)
+    ##setEnvVars(rlang::global_env(),desiredVarNames)
     ###############################################
     setEnvVersion(docSessionId,lineId,desiredCmdIndex)
   }
@@ -260,8 +263,12 @@ getDocState <- function(docSessionId) {
 }
 
 ## Gets the initial variable list for a document session state
-getInitVarList <- function() {
-  rlang::env_get(.sessionStateEnv.,"initVarList")
+getInitVarNames <- function() {
+  rlang::env_get(.sessionStateEnv.,"initVarNames")
+}
+
+getInitVarTypes <- function() {
+  rlang::env_get(.sessionStateEnv.,"initVarTypes")
 }
 
 ## Gets the initial variable versions for a document session state
@@ -294,14 +301,16 @@ evaluateDocState <- function(docState,envir) {
     if(!is.null(prevLine)) {
       prevLineId <- prevLine$lineId
       inIndex <- prevLine$outIndex
-      inVarList <- prevLine$outVarList
+      inVarNames <- prevLine$outVarNames
+      inVarTypes <- prevLine$outVarTypes
       inVarVersions <- prevLine$outVarVersions
     }
     else {
       ##no previous line - use initial doc state
       prevLineId <- INIT_LINE_ID
       inIndex <- INIT_CMD_INDEX
-      inVarList <- getInitVarList()
+      inVarNames <- getInitVarNames()
+      inVarTypes <- getInitVarTypes()
       inVarVersions <- getInitVarVersions()
     }
     
@@ -317,26 +326,17 @@ evaluateDocState <- function(docState,envir) {
     if( !identical(prevLineId,modLine$prevLineId) || !identical(inIndex,modLine$inIndex) ) {
       modLine$prevLineId <- prevLineId
       modLine$inIndex <- inIndex
-      modLine$inVarList <- inVarList
+      modLine$inVarNames <- inVarNames
+      modLine$inVarTypes <- inVarTypes
       modLine$inVarVersions <- inVarVersions
-      
-      ##clean this up - I do something similar for versions in other places
-      ##also. later we should get better versions for what I call here SYSTEM_REF_VERSION variables
-      
-      ######################################################################################################
-      #codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$codeInputs))
-      #names(codeInputVersions) <- modLine$codeInputs
-      #envirCodeInputs <- intersect(modLine$codeInputs,names(modLine$inVarList))
-      codeInputVersions <- rep(SYSTEM_REF_VERSION,length(modLine$DEV_codeInputs))
-      names(codeInputVersions) <- modLine$DEV_codeInputs
-      envirCodeInputs <- intersect(modLine$DEV_codeInputs,names(modLine$inVarList))
-      ######################################################################################################
-      codeInputVersions[envirCodeInputs] <- modLine$inVarVersions[envirCodeInputs]
+
+      # fix this for the proper types!!
+      codeInputVersions <- getInputVersions(modLine)
       
       ##update code input versions if code is newer than the inputs or any inputs change
       if( (modLine$codeChangedIndex > modLine$codeInputIndex) || any(codeInputVersions != modLine$codeInputVersions) ) {
-        modLine$codeInputVersions = codeInputVersions
-        modLine$codeInputIndex = currentCmdIndex
+        modLine$codeInputVersions <- codeInputVersions
+        modLine$codeInputIndex <- currentCmdIndex
       }
       else {
         nonCodeInputsChanged = TRUE
@@ -364,20 +364,25 @@ evaluateDocState <- function(docState,envir) {
       outputs <- modLine$DEV_codeOutputs
       ################################################################
       
-      outVarList <- modLine$inVarList
-      outVarList[outputs] <- modLine$outVarList[outputs]
+      outVarNames <- modLine$inVarNames
+      outVarNames[outputs] <- modLine$outVarNames[outputs]
+      
+      outVarTypes <- modLine$inVarTypes
+      outVarTypes[outputs] <- modLine$outVarTypes[outputs]
       
       outVarVersions <- modLine$inVarVersions
       outVarVersions[outputs] <- modLine$outVarVersions[outputs]
       
       ##we expect deletes to be inputs, but we will remove them in case they are not captured in dependencies
       if(length(modLine$deleted) > 0) {
-        keptNameFlags <- !(names(outVarList) %in% modLine$deleted)
-        outVarList <- outVarList[keptNameFlags]
-        outVarVersions <- outVarList[keptNameFlags]
+        keptNameFlags <- !(names(outVarNames) %in% modLine$deleted)
+        outVarNames <- outVarNames[keptNameFlags]
+        outVarType <- outVarTypes[keptNameFlags]
+        outVarVersions <- outVarNames[keptNameFlags]
       }
     
-      modLine$outVarList <- outVarList
+      modLine$outVarNames <- outVarNames
+      modLine$outVarTypes <- outVarTypes
       modLine$outVarVersions <- outVarVersions
       modLine$outIndex <- currentCmdIndex
       
@@ -409,7 +414,7 @@ evaluateDocState <- function(docState,envir) {
       
       ##note - updateVarTable has side effect of sending the update table message
       ##send var table update first - so receivers of other messages can use it for decoding
-      docState <- updateVarTable(docState,modLine$lineId,modLine$envVarNames,oldLine$envVarNames,modLine$outVarList)
+      docState <- updateVarTable(docState,modLine$lineId,modLine$envVarNames,oldLine$envVarNames,modLine$outVarNames)
       
       ##cell env var message
       sendCellEnvMessage(docState$docSessionId,modLine)
@@ -439,6 +444,31 @@ evaluateDocState <- function(docState,envir) {
   docState
 }
 
+getInputVersions <- function(lineState) {
+  
+  if(lineState$codeInfo$root_is_global == FALSE) stop("Get input versions does not support non-globally executed code currently!")
+  if(lineState$parseValue == FALSE) stop("ErrorL attempting to find dependencies on code with invalid parse")
+  
+  ## Here we are assuming we are at global environment - we assume all input names are "norm" and not "super"
+  codeVarInfo <- lineState$codeInfo$env[[1]]
+  codeInputNames <- codeVarInfo$assign$name
+  codeINputTypes <- codevarInfo$assign$nfunc
+  
+  inVarNames <- lineState$inVarNames
+  inVarTypes <- lineState$inVarTypes
+  inVarVersions <- lineState$inVarVersions
+  
+  codeInputVersions <- purrr::map_chr(codeInputNames, function(name) {
+    if ((codeInputTypes[name] && inVarTypes[name] && name %in% inVarNames) || !codeInputTypes[name]) {
+      inVarVersions[name]
+    } else {
+      SYSTEM_REF_VERSION
+    }
+  })
+  
+  return(codeInputVersions)
+}
+
 evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
   
   ## update environment if it is not in the right state
@@ -448,7 +478,7 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
       (modLine$prevLineId != envVersion$lineId) ||
       (modLine$inIndex != envVersion$cmdIndex) ) {
     ## we need to update the variables in the environment
-    setEnvVars(envir,modLine$inVarList)
+    setEnvVars(envir,modLine$inVarNames)
   }
   
   ##clear the value of the env state
@@ -497,84 +527,77 @@ evalCode <- function(docSessionId,modLine,currentCmdIndex,envir) {
 
 ## This updates the line outputs for a newly evaluated entry
 updateLineOutputs <- function(oldLine,envir,currentCmdIndex) {
-  newVarList <- getEnvVars(envir)
+  newVarNames <- getEnvVars(envir)
+  newVarTypes <- getvarTypes(newVarNames,envir)
   
   ## MAKE SURE SOME OF THESE THING ARE PRESENT!!!
   ## see how to handle values on oldLine, in case some are missing
   
-  kept <- intersect(names(oldLine$inVarList),names(newVarList))
-  created <- setdiff(names(newVarList),names(oldLine$inVarList))
-  deleted <- setdiff(names(oldLine$inVarList),names(newVarList))
+  kept <- intersect(names(oldLine$inVarNames),names(newVarNames))
+  created <- setdiff(names(newVarNames),names(oldLine$inVarNames))
+  deleted <- setdiff(names(oldLine$inVarNames),names(newVarNames))
   if(length(kept) > 0) {
-    updated <- kept[sapply(kept,function(varName) !identical(oldLine$inVarList[[varName]],newVarList[[varName]]))]
+    updated <- kept[sapply(kept,function(varName) !identical(oldLine$inVarNames[[varName]],newVarNames[[varName]]))]
   } else {
     updated <- character(0)
   }
   unchanged <- setdiff(kept,updated)
   
   ##set the versions for each variable value
-  newVarVersions = rep(paste(oldLine$lineId,currentCmdIndex,sep="|"),length(newVarList))
-  names(newVarVersions) = names(newVarList)
+  newVarVersions = rep(paste(oldLine$lineId,currentCmdIndex,sep="|"),length(newVarNames))
+  names(newVarVersions) = names(newVarNames)
   newVarVersions[unchanged] = oldLine$inVarVersions[unchanged]
   
   ## set the new output values on the line
   newLine <- oldLine
   
+  ## WE ARE ASSUMING WE ARE AT THE GLOBAL LEVEL HERE!
+  if(newLine$codeInfo$root_is_global == FALSE) stop("Code assumes we are executing code at root level!")
+  envIndex <- 1
+  
   ##========================================================================
   ## WORKAROUND FOR RANDOM SEED DEPENDENCY
-  ## As of now we dont' get the random see as a dependency. But if it is used,
-  ## it will also be udpated. So we will use this as a trigger to add it to code inputs.
-  ## (for the sake of set.seed, this is not an input, but that means just an extra evaluation of that code)
-  ## !!!:
-  ## This is messy and future error prone 
-  ## This should be cleaned up.
-  #if( !(RANDOM_SEED_NAME %in% newLine$codeInputs) ) {
-  if( !(RANDOM_SEED_NAME %in% newLine$DEV_codeInputs) ) {
+  ## If we detect a modified RANDOM_SEED_NAME variable, then we are assuming
+  ## the random seed is referenced and modified. We add it to the references and assignments. We also set the input version.
+  ## THIS IS ERROR PRONE - including that updating of the codeInfo and the associated input versions
+  ## It is also a little slopppy how I check inputs
+  ## I should get a better way to do this
+  if( !(RANDOM_SEED_NAME %in% newLine$env[[endIndex]]$ref$name) ) {
+    newLine$codeInfo <- addReference(newLine$codeInfo,envIndex,RANDOM_SEED_NAME,FALSE)
+    newLine$codeInfo <- addAssignment(newLine$codeInfo,envIndex,RANDOM_SEED_NAME,FALSE)
+    
+    ## since we added a reference, we need to update the codeInputVersions and the codeInputIndex
+    ## these should stay aligned with the values in the references data frame in the codeInfo
     if(RANDOM_SEED_NAME %in% created) {
-      ##move from created to updated, since we will set this to be a code input
-      created = created[created != RANDOM_SEED_NAME]
-      updated = c(updated,RANDOM_SEED_NAME)
-      
-      ##add code input with version coming from system
-      #newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
-      ###################################################################################
-      newLine$DEV_codeInputs <- c(newLine$DEV_codeInputs,RANDOM_SEED_NAME)
-      newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,RANDOM_SEED_NAME)
-      ###################################################################################
       newLine$codeInputVersions[[RANDOM_SEED_NAME]] = SYSTEM_REF_VERSION
     }
     else if(RANDOM_SEED_NAME %in% updated) {
-      ##add code input with version coming from system in var versions
-      #newLine$codeInputs <- c(newLine$codeInputs,RANDOM_SEED_NAME)
-      ###################################################################################
-      newLine$DEV_codeInputs <- c(newLine$DEV_codeInputs,RANDOM_SEED_NAME)
-      newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,RANDOM_SEED_NAME)
-      ###################################################################################
       newLine$codeInputVersions[[RANDOM_SEED_NAME]] = newLine$inVarVersions[RANDOM_SEED_NAME]
     }
+    newLine$codeInputIndex <- currentCmdIndex
   }
   ##========================================================================
   
-  #####################################################
-  #newLine$created <- created
-  #newLine$updated <- updated
-
-  
-  
+  ##check if we have extra output variables
   measuredOutputs <- c(created,updated)
-  extraOuts <- setdiff(measuredOutputs,newLine$DEV_codeOutputs)
-  if(length(extraOuts) > 0) {
-    newLine$DEV_codeOutputs <- c(newLine$DEV_codeOutputs,extraOuts)
-    print("extraOuts detected")
-    print(extraOuts)
+  extraOutNames <- setdiff(measuredOutputs,newLine$DEV_codeOutputs)
+  if(length(extraOutNames) > 0) {
+    extraOutTypes <- getVarTypes(extraOutNames, envir)
+    
+    # add these extra outputs to our codeInfo
+    newline$codeInfo <- purrr::reduce2(extraOutNames, extraOutTypes, function(code_info, name, is_function) {
+      addAssignment(code_info, envIndex, name, is_function)
+    }, .init = newline$codeInfo)
+    
+    print("extra out variables detected")
+    print(extraOutNames)
   }
   
-  
-  ############################################################
   newLine$deleted <- deleted
 
   newLine$outIndex <- currentCmdIndex
-  newLine$outVarList <- newVarList
+  newLine$outVarNames <- newVarNames
+  newLine$outVarTypes <- newVarTypes
   newLine$outVarVersions <- newVarVersions
   
   newLine
@@ -589,13 +612,13 @@ createVersionedNames <- function(varVersions) {
 ## This updates the variable table in the state
 ## It also has the side effect of sending the var table udpate message, since we can
 ## calculate the deltas here
-updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarList) {
+updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarNames) {
   cellAddNames <- setdiff(newEnvVarNames,oldEnvVarNames)
   cellDropNames <- setdiff(oldEnvVarNames,newEnvVarNames)
   
-  modVarList <- newVarList
-  names(modVarList) <- newEnvVarNames  ##change the names on the var list so we can look up the added values
-  cellAddValues <- modVarList[cellAddNames]
+  modVarNames <- newVarNames
+  names(modVarNames) <- newEnvVarNames  ##change the names on the var list so we can look up the added values
+  cellAddValues <- modVarNames[cellAddNames]
   
   stateData <- list(varTable=docState$varTable,adds=character(),drops=character())
   stateData <- purrr::reduce2(cellAddNames,cellAddValues,processCellAdds,lineId=lineId,.init=stateData)
@@ -604,7 +627,7 @@ updateVarTable <- function(docState,lineId,newEnvVarNames,oldEnvVarNames,newVarL
   docState$varTable <- stateData$varTable
   
   ##send doc environment message - add as list of values, drops as vector of names
-  addList <- modVarList[stateData$adds]
+  addList <- modVarNames[stateData$adds]
   names(addList) <- stateData$adds
   sendDocEnvMessage(docState,lineId,addList,stateData$drops)
   
@@ -814,30 +837,13 @@ processCode <- function(entry,code) {
     }
     ##TBD - add other handlers, for warnings or messages
   )
-  
-  #entry$codeInputs <- if(entry$parseValid) getDependencies(code) else character()
-  
-  ###########################################################################
-  if(entry$parseValid) {
-    depInfo <- analyze_code(code,isGlobal = TRUE)
-    inputs <- character()
-    outputs <- character()
-    frame <- depInfo$stack[[1]] ## we are assuming global == TRUE!!!
-    for(name in names(frame)) {
-      depVar <- frame[[name]]
-      isInput <- (depVar[[REFASCALL]] || depVar[[REFASNORM]])
-      isOutput <- depVar[[ASSIGNED]]
-      
-      if(isInput) inputs <- c(inputs,name)
-      if(isOutput) outputs <- c(outputs,name)
-    }
-    
-    entry$DEV_codeInputs <- inputs
-    entry$DEV_codeOutputs <- outputs
-    
+
+  entry$codeInfo <- if(entry$parseValid) {
+    analyze_code(code,isGlobal = TRUE)
+  } else {
+    NULL
   }
 
-  #########################################################################
   entry
 }
 
