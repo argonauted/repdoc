@@ -39,10 +39,8 @@ getEnvVars <- function(envir) {
   envirVars
 }
 
-getVarTypes <- function(varNames, env) {
-  varTypes <- sapply(varNames, function(name) is.function(get(name, envir = env)))
-  names(varTypes) <- varNames
-  return(varTypes)
+getVarTypes <- function(varValues) {
+  sapply(varValues, function(value) is.function(value))
 }
 
 insertAfter <- function(localDocState,entry,index) {
