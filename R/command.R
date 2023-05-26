@@ -688,7 +688,7 @@ getLineDisplayData <- function(lineState,envir) {
   ##only read from the last expression in the line/cell
   lineExpr <- lineState$exprs[[exprCount]]
   
-  if(isAssignment(lineExpr)) {
+  if(rlang::is_call(lineExpr,c("<-","<<-","="))) {  ## is this an assignment
     targetExpr <- lineExpr[[2]]
     tryCatch({
       displayData <- list()
