@@ -445,9 +445,9 @@ evaluateDocState <- function(docState,envir) {
 }
 
 getInputVersions <- function(lineState) {
-  
+
   if(lineState$codeInfo$root_is_global == FALSE) stop("Get input versions does not support non-globally executed code currently!")
-  if(lineState$parseValid == FALSE) stop("ErrorL attempting to find dependencies on code with invalid parse")
+  if(lineState$parseValid == FALSE) return(character()) ## no input versions for invalid parse
   
   ## Here we are assuming we are at global environment - we assume all input names are "norm" and not "super"
   codeVarInfo <- lineState$codeInfo$env[[1]]
@@ -840,7 +840,7 @@ processCode <- function(entry,code) {
   entry$codeInfo <- if(entry$parseValid) {
     analyze_code(code,isGlobal = TRUE)
   } else {
-    NULL
+    CodeInfo() ## empty code info
   }
 
   entry
