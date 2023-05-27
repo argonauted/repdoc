@@ -71,7 +71,8 @@ analyze_code <- function(code,isGlobal=TRUE) {
 
 ## This traverses each of a list of expressions
 traverse_exprs <- function(codeInfo,exprs,env) {
-  codeInfo <- purrr::reduce(exprs,traverse_expr,.init=codeInfo,env=env)
+  vexprs <- purrr::map(exprs,rlang::is_expression) # this filters out empty function arguments, which cause a problem in the reduce stmt below
+  codeInfo <- purrr::reduce(vexprs,traverse_expr,.init=codeInfo,env=env)
   return(codeInfo)
 }
 
